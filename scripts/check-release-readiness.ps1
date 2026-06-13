@@ -79,7 +79,7 @@ function Assert-CompletedItemEvidence {
         },
         @{
             Text = "Canonical hashing implemented."
-            Path = "src/SafeIR.Core/CanonicalModuleHasher.cs"
+            Path = "src/SafeIR.Core/Model/CanonicalModuleHasher.cs"
             Patterns = @("Hash", "Serialize")
         },
         @{
@@ -99,7 +99,7 @@ function Assert-CompletedItemEvidence {
         },
         @{
             Text = "Binding registry validation implemented."
-            Path = "src/SafeIR.Core/BindingRegistryValidator.cs"
+            Path = "src/SafeIR.Core/Bindings/BindingRegistryValidator.cs"
             Patterns = @("Validate", "BindingDescriptor")
         },
         @{
@@ -109,82 +109,82 @@ function Assert-CompletedItemEvidence {
         },
         @{
             Text = "Fuel limits implemented."
-            Path = "src/SafeIR.Core/Resources.cs"
+            Path = "src/SafeIR.Core/Model/Resources.cs"
             Patterns = @("ChargeFuel", "MaxFuel")
         },
         @{
             Text = "Safe error model implemented."
-            Path = "src/SafeIR.Core/SandboxError.cs"
+            Path = "src/SafeIR.Core/Model/Diagnostics.cs"
             Patterns = @("SandboxError", "SafeMessage")
         },
         @{
             Text = "Basic audit implemented."
-            Path = "src/SafeIR.Core/Audit.cs"
+            Path = "src/SafeIR.Core/Bindings/Audit.cs"
             Patterns = @("SandboxAuditEvent", "IAuditSink")
         },
         @{
             Text = "At least one safe file binding implemented and tested."
-            Path = "tests/SafeIR.Tests/SafeFileSystemTests.cs"
+            Path = "tests/SafeIR.Tests/Runtime/File/SafeFileSystemTests.cs"
             Patterns = @("Granted_file_read", "file.readText")
         },
         @{
             Text = "Path traversal tests pass."
-            Path = "tests/SafeIR.Tests/SafeFileSystemTests.cs"
+            Path = "tests/SafeIR.Tests/Runtime/File/SafeFileSystemTests.cs"
             Patterns = @("\.\./secret\.txt", "config/\.\./\.\./secret\.txt")
         },
         @{
             Text = "Binding security checklist passes."
-            Path = "tests/SafeIR.Tests/BindingRegistryHardeningTests.cs"
+            Path = "tests/SafeIR.Tests/Bindings/BindingRegistryHardeningTests.cs"
             Patterns = @("E-BINDING-AUDIT", "E-BINDING-GRANT", "E-BINDING-TYPE")
         },
         @{
             Text = "Compiler emits valid managed assemblies."
-            Path = "src/SafeIR.Compiler/ReflectionEmitSandboxCompiler.cs"
+            Path = "src/SafeIR.Compiler/Emitters/ReflectionEmitSandboxCompiler.cs"
             Patterns = @("AssemblyBuilder", "CompileAsync")
         },
         @{
             Text = "Generated assemblies use runtime stubs only."
-            Path = "src/SafeIR.Compiler/MethodEmitter.cs"
+            Path = "src/SafeIR.Compiler/Emitters/MethodEmitter.cs"
             Patterns = @("CompiledRuntime", "EmitCall")
         },
         @{
             Text = "Verifier implemented."
-            Path = "src/SafeIR.Verifier/GeneratedAssemblyVerifier.cs"
+            Path = "src/SafeIR.Verifier/Generated/GeneratedAssemblyVerifier.cs"
             Patterns = @("VerifyAsync", "VerificationResult")
         },
         @{
             Text = "Verifier malicious fixtures pass."
-            Path = "tests/SafeIR.Tests/VerifierAttackMatrixTests.cs"
+            Path = "tests/SafeIR.Tests/Verifier/Core/VerifierAttackMatrixTests.cs"
             Patterns = @("HttpClient", "ProcessStart", "Calli")
         },
         @{
             Text = "Compiled/interpreted differential tests pass."
-            Path = "tests/SafeIR.Tests/DifferentialFuzzTests.cs"
+            Path = "tests/SafeIR.Tests/Fuzz/DifferentialFuzzTests.cs"
             Patterns = @("ExecutionMode\.Interpreted", "ExecutionMode\.Compiled")
         },
         @{
             Text = "Path traversal tests pass."
-            Path = "tests/SafeIR.Tests/SafeFileSystemTests.cs"
+            Path = "tests/SafeIR.Tests/Runtime/File/SafeFileSystemTests.cs"
             Patterns = @("\.\./secret\.txt", "config/\.\./\.\./secret\.txt")
         },
         @{
             Text = "DLL cache manifest implemented."
-            Path = "src/SafeIR.Verifier/VerificationModels.cs"
+            Path = "src/SafeIR.Verifier/Generated/VerificationModels.cs"
             Patterns = @("ArtifactManifest", "CacheKey")
         },
         @{
             Text = "Cache invalidation tests pass."
-            Path = "tests/SafeIR.Tests/CompiledCacheMetadataTests.cs"
+            Path = "tests/SafeIR.Tests/Compiled/Core/CompiledCacheMetadataTests.cs"
             Patterns = @("CacheKey", "quarantined_and_recompiled")
         },
         @{
             Text = "Cache corruption tests pass."
-            Path = "tests/SafeIR.Tests/CompiledMaterializationCacheTests.cs"
+            Path = "tests/SafeIR.Tests/Compiled/Core/CompiledMaterializationCacheTests.cs"
             Patterns = @("MutatesSecondArtifactCompiler", "AssemblyBytes")
         },
         @{
             Text = '`AssemblyLoadContext` lifecycle tested.'
-            Path = "tests/SafeIR.Tests/CompiledMaterializationCacheTests.cs"
+            Path = "tests/SafeIR.Tests/Compiled/Core/CompiledMaterializationCacheTests.cs"
             Patterns = @("WeakReference", "AssemblyLoadContext")
         },
         @{
@@ -224,47 +224,47 @@ function Assert-CompletedItemEvidence {
 
     $securitySectionEvidence = @{
         "User input" = @{
-            Path = "tests/SafeIR.Tests/JsonImporterTests.cs"
+            Path = "tests/SafeIR.Tests/Serialization/JsonImporterTests.cs"
             Patterns = @("unsupported_properties", "assemblyName")
         }
         "IR" = @{
-            Path = "tests/SafeIR.Tests/JsonImporterTests.cs"
+            Path = "tests/SafeIR.Tests/Serialization/JsonImporterTests.cs"
             Patterns = @("targetSandboxVersion", "reject")
         }
         "Type system" = @{
-            Path = "src/SafeIR.Core/SandboxType.cs"
+            Path = "src/SafeIR.Core/Sandbox/SandboxType.cs"
             Patterns = @("SandboxType", "OpaqueId")
         }
         "Bindings" = @{
-            Path = "tests/SafeIR.Tests/BindingRegistryHardeningTests.cs"
+            Path = "tests/SafeIR.Tests/Bindings/BindingRegistryHardeningTests.cs"
             Patterns = @("E-BINDING", "AuditLevel.PerCall")
         }
         "Capabilities/policy" = @{
-            Path = "tests/SafeIR.Tests/CapabilityRevocationTests.cs"
+            Path = "tests/SafeIR.Tests/Policy/CapabilityRevocationTests.cs"
             Patterns = @("RevokeCapability", "CapabilityRevoked")
         }
         "Interpreter" = @{
-            Path = "src/SafeIR.Interpreter/InterpreterEvaluator.cs"
+            Path = "src/SafeIR.Interpreter/Internal/StatementExecutor.cs"
             Patterns = @("ChargeFuel", "ChargeLoopIteration")
         }
         "Compiler" = @{
-            Path = "src/SafeIR.Compiler/ReflectionEmitSandboxCompiler.cs"
+            Path = "src/SafeIR.Compiler/Emitters/ReflectionEmitSandboxCompiler.cs"
             Patterns = @("CompileAsync", "Verification")
         }
         "Verifier" = @{
-            Path = "tests/SafeIR.Tests/VerifierTests.cs"
+            Path = "tests/SafeIR.Tests/Verifier/Generated/VerifierTests.cs"
             Patterns = @("PInvoke", "MutableStatic")
         }
         "Cache" = @{
-            Path = "tests/SafeIR.Tests/CompiledCacheTests.cs"
+            Path = "tests/SafeIR.Tests/Compiled/Core/CompiledCacheTests.cs"
             Patterns = @("Policy_hash_change", "Binding_manifest_change")
         }
         "Resource limits" = @{
-            Path = "tests/SafeIR.Tests/CompiledRuntimeQuotaTests.cs"
+            Path = "tests/SafeIR.Tests/Compiled/Generated/CompiledRuntimeQuotaTests.cs"
             Patterns = @("QuotaExceeded", "Fuel")
         }
         "Audit" = @{
-            Path = "tests/SafeIR.Tests/SafeLoggingTests.cs"
+            Path = "tests/SafeIR.Tests/Audit/SafeLoggingTests.cs"
             Patterns = @("RunSummary", "redacted")
         }
     }
@@ -283,6 +283,38 @@ function Assert-CompletedItemEvidence {
             Select-Object -First 10 |
             ForEach-Object { "$([System.IO.Path]::GetFileName($_.File)):$($_.Line) [$($_.Section)] $($_.Text)" }
         throw "Completed security review items are missing section evidence checks: $($sample -join '; ')"
+    }
+
+    # Completed "Documentation" inventory items are release evidence: verify each checked entry
+    # still points at an existing doc with expected patterns (non-blocking for -RequireComplete).
+    $docSpec = "docs/Specs/Initial/safe-ir-sandbox-spec"
+    $documentationEvidence = @{
+        "User-facing language docs." = @{ Path = "$docSpec/spec/04-ir-language.md"; Patterns = @("JSON IR", "IR design goals") }
+        "Host binding author guide." = @{ Path = "$docSpec/spec/07-bindings.md"; Patterns = @("# 07 — Bindings", "host-provided") }
+        "Security model docs." = @{ Path = "$docSpec/spec/02-threat-model.md"; Patterns = @("Threat Model", "Assets to protect") }
+        "Capability catalog." = @{ Path = "$docSpec/spec/08-runtime-safe-apis.md"; Patterns = @("Safe file API", "Safe network API") }
+        "Error code reference." = @{ Path = "$docSpec/spec/09-interpreted-mode.md"; Patterns = @("E-POLICY-001", "E-RUNTIME-004") }
+        "Debugging guide." = @{ Path = "$docSpec/spec/09-interpreted-mode.md"; Patterns = @("Debugging support") }
+        "Operational runbook." = @{ Path = "$docSpec/operations/runbook.md"; Patterns = @("Operational Runbook") }
+    }
+
+    $completedDocumentation = @($items | Where-Object {
+        -not $_.Required -and $_.Complete -and $_.File -eq $releaseReadiness -and $_.Section -eq "Documentation"
+    })
+
+    foreach ($item in $completedDocumentation) {
+        if ($documentationEvidence.ContainsKey($item.Text)) {
+            $entry = $documentationEvidence[$item.Text]
+            Assert-Evidence "Documentation item '$($item.Text)'" $entry.Path $entry.Patterns
+        }
+    }
+
+    $missingDocumentationEvidence = @($completedDocumentation | Where-Object { -not $documentationEvidence.ContainsKey($_.Text) })
+    if ($missingDocumentationEvidence.Count -gt 0) {
+        $sample = $missingDocumentationEvidence |
+            Select-Object -First 10 |
+            ForEach-Object { "$([System.IO.Path]::GetFileName($_.File)):$($_.Line) $($_.Text)" }
+        throw "Completed documentation inventory items are missing evidence checks: $($sample -join '; ')"
     }
 }
 

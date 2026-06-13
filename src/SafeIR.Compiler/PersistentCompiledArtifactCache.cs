@@ -1,6 +1,7 @@
 namespace SafeIR.Compiler;
 
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text.Json;
 using SafeIR;
 using SafeIR.Verifier;
@@ -13,7 +14,7 @@ public sealed partial class PersistentCompiledArtifactCache
     };
 
     private readonly string _rootDirectory;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _entryLocks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, EntryLock> _entryLocks = new(StringComparer.Ordinal);
 
     public PersistentCompiledArtifactCache(string rootDirectory)
     {
@@ -104,23 +105,41 @@ public sealed partial class PersistentCompiledArtifactCache
             PersistentCompiledArtifactCacheValidator.ValidateVerification(manifest, cachedVerification, policy);
             var assemblyBytes = await File.ReadAllBytesAsync(Path.Combine(entryPath, "module.dll"), cancellationToken)
                 .ConfigureAwait(false);
-            var verification = await verifier
-                .VerifyAsync(
-                    assemblyBytes,
+            await PersistentCompiledArtifactCacheOrigin.ValidateProofAsync(
+                    entryPath,
+                    cacheKey,
+                    plan,
+                    entrypoint,
                     manifest,
-                    policy.WithExpectedManifest(VerificationManifestIdentity.FromManifest(manifest)),
+                    cachedVerification,
+                    assemblyBytes,
                     cancellationToken)
                 .ConfigureAwait(false);
-            if (!verification.Succeeded)
+
+            // The cached verification record is the artifact's verification proof on the read
+            // path: the manifest identity, the cached verification result, and the host-bound
+            // origin proof have all been validated above, and the origin proof is an HMAC over
+            // the exact assembly bytes plus that verification record signed by this host's secret
+            // key. Re-running the full generated-assembly verifier here only repeats PE/metadata/IL
+            // work the write path already performed (and that the host repeats once more before it
+            // loads the assembly), so it is pure cache-hit latency. We still bind the bytes to the
+            // claimed hash with a cheap SHA-256 check so a tampered module fails closed even if the
+            // origin key were ever compromised. The verifier parameter is retained for the contract
+            // and remains the gate on the write path.
+            _ = verifier;
+            var actualHash = Convert.ToHexString(SHA256.HashData(assemblyBytes)).ToLowerInvariant();
+            if (!StringComparer.Ordinal.Equals(actualHash, manifest.AssemblyHash))
             {
-                throw new SandboxRuntimeException(new SandboxError(SandboxErrorCode.VerifierFailure, "cached artifact failed verification"));
+                throw new SandboxRuntimeException(new SandboxError(
+                    SandboxErrorCode.CacheInvalid,
+                    "cached artifact bytes do not match manifest hash"));
             }
 
             return new CompiledCacheLookup(CompiledCacheStatus.Hit, new CompiledArtifact(
                 assemblyBytes,
-                verification.AssemblyHash,
+                cachedVerification.AssemblyHash,
                 manifest,
-                verification,
+                cachedVerification,
                 (_, _) => throw new InvalidOperationException("cached artifact entrypoint is loaded by the compiler"),
                 CompiledRuntimeFormKind.LoadedAssembly,
                 CompiledCacheStatus.Hit));
@@ -156,6 +175,16 @@ public sealed partial class PersistentCompiledArtifactCache
             await WriteBytesAsync(Path.Combine(tempPath, "module.dll"), assemblyBytes, cancellationToken).ConfigureAwait(false);
             await WriteJsonAsync(Path.Combine(tempPath, "manifest.json"), manifest, cancellationToken).ConfigureAwait(false);
             await WriteJsonAsync(Path.Combine(tempPath, "verification.json"), verification, cancellationToken).ConfigureAwait(false);
+            await PersistentCompiledArtifactCacheOrigin.WriteProofAsync(
+                    tempPath,
+                    cacheKey,
+                    plan,
+                    entrypoint,
+                    manifest,
+                    verification,
+                    assemblyBytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
             PersistentCompiledArtifactCachePublisher.ValidateEntryShape(tempPath);
             await ValidateTempEntryAsync(
                     tempPath,
@@ -193,8 +222,27 @@ public sealed partial class PersistentCompiledArtifactCache
     private static async ValueTask<T> ReadJsonAsync<T>(string path, CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken).ConfigureAwait(false) ??
-               throw new JsonException("empty json file");
+        try
+        {
+            return await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken).ConfigureAwait(false) ??
+                   throw new JsonException("empty json file");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException
+            and not JsonException
+            and not IOException
+            and not UnauthorizedAccessException)
+        {
+            // A cached model can round-trip through System.Text.Json yet still fail to
+            // construct because its defensive normalization (e.g. ArtifactManifest copying
+            // OptimizationFlags, which rejects a null collection) throws while materializing
+            // invalid persisted data. Convert any such materialization failure into a
+            // JsonException so the cache read path fails closed and routes the entry to
+            // quarantine + recompile, instead of surfacing an unhandled exception that aborts
+            // execution. Cancellation and the already-handled IO/JSON failures propagate as-is.
+            throw new JsonException(
+                $"cached '{typeof(T).Name}' metadata could not be materialized: {ex.Message}",
+                ex);
+        }
     }
 
     private static async ValueTask WriteJsonAsync<T>(string path, T value, CancellationToken cancellationToken)
@@ -213,46 +261,6 @@ public sealed partial class PersistentCompiledArtifactCache
         stream.Flush(flushToDisk: true);
     }
 
-    private async ValueTask<T> WithEntryLockAsync<T>(
-        string cacheKey,
-        Func<ValueTask<T>> action,
-        CancellationToken cancellationToken)
-    {
-        var entryLock = _entryLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
-        await entryLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await using var fileLock = await PersistentCacheEntryLock
-                .AcquireAsync(_rootDirectory, cacheKey, cancellationToken)
-                .ConfigureAwait(false);
-            return await action().ConfigureAwait(false);
-        }
-        finally
-        {
-            entryLock.Release();
-        }
-    }
-
-    private async ValueTask WithEntryLockAsync(
-        string cacheKey,
-        Func<ValueTask> action,
-        CancellationToken cancellationToken)
-    {
-        var entryLock = _entryLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
-        await entryLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await using var fileLock = await PersistentCacheEntryLock
-                .AcquireAsync(_rootDirectory, cacheKey, cancellationToken)
-                .ConfigureAwait(false);
-            await action().ConfigureAwait(false);
-        }
-        finally
-        {
-            entryLock.Release();
-        }
-    }
-
     private void Quarantine(string entryPath)
     {
         if (!Directory.Exists(entryPath))
@@ -269,6 +277,11 @@ public sealed partial class PersistentCompiledArtifactCache
             Path.GetFileName(entryPath) + "-" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + "-" + Guid.NewGuid().ToString("N"));
         PersistentCompiledArtifactCachePathGuard.ValidateEntryPath(_rootDirectory, target);
         Directory.Move(entryPath, target);
+
+        // Bound the quarantine tree so repeated corruption cannot grow disk usage and directory-scan
+        // cost without limit. Runs after the move, so cleanup cost stays proportional to the current
+        // quarantine size rather than every entry ever quarantined.
+        PersistentCompiledArtifactCacheQuarantine.Prune(quarantineRoot);
     }
 
     private static FileStream DurableCreate(string path)
@@ -290,6 +303,7 @@ public sealed partial class PersistentCompiledArtifactCache
             ArgumentException => "InvalidMetadata",
             _ => exception.GetType().Name
         };
+
 }
 
 public sealed record CompiledCacheLookup(

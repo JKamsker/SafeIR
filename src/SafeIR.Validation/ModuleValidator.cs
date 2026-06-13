@@ -4,26 +4,44 @@ using SafeIR;
 
 public sealed class ModuleValidator
 {
+    private static readonly IReadOnlySet<string> NoDeclaredOpaqueIdTypes =
+        new HashSet<string>(StringComparer.Ordinal);
+
     public ModuleValidationResult Validate(SandboxModule module, IBindingCatalog bindings, SandboxPolicy? policy = null)
     {
         var diagnostics = new List<SandboxDiagnostic>();
-        StructuralValidator.Validate(module, diagnostics);
+        var declaredOpaqueIdTypes = policy?.DeclaredOpaqueIdTypes ?? NoDeclaredOpaqueIdTypes;
+        StructuralValidator.Validate(module, diagnostics, declaredOpaqueIdTypes);
         if (diagnostics.Count > 0) {
             return ModuleValidationResult.Failure(diagnostics);
         }
 
-        var analyzer = new FunctionAnalyzer(module, bindings, diagnostics);
-        var functions = analyzer.AnalyzeAll();
-        var requiredEffects = RequiredEffects(module, functions);
-        var requiredCapabilities = RequiredCapabilities(module, bindings);
-        PolicyResolver.Validate(module, bindings, policy, requiredEffects, requiredCapabilities, diagnostics);
+        IReadOnlyDictionary<string, FunctionAnalysis> functions;
+        IReadOnlyDictionary<string, IReadOnlySet<string>> bindingReferences;
+        IReadOnlySet<string> requiredCapabilities;
+        SandboxEffect requiredEffects;
+        try
+        {
+            var analyzer = new FunctionAnalyzer(module, bindings, diagnostics, declaredOpaqueIdTypes);
+            functions = analyzer.AnalyzeAll();
+            requiredEffects = RequiredEffects(module, functions);
+            bindingReferences = BindingReferenceCollector.CollectByFunction(module, bindings);
+            requiredCapabilities = RequiredCapabilities(module, bindings, bindingReferences);
+            PolicyResolver.Validate(module, bindings, policy, requiredEffects, requiredCapabilities, diagnostics);
+        }
+        catch (SandboxValidationException ex)
+        {
+            diagnostics.AddRange(ex.Diagnostics);
+            return ModuleValidationResult.Failure(diagnostics);
+        }
 
         return new ModuleValidationResult(
             HasNoErrors(diagnostics),
             diagnostics,
             functions,
             requiredEffects,
-            requiredCapabilities);
+            requiredCapabilities,
+            bindingReferences);
     }
 
     private static SandboxEffect RequiredEffects(
@@ -42,7 +60,10 @@ public sealed class ModuleValidator
         return effects;
     }
 
-    private static IReadOnlySet<string> RequiredCapabilities(SandboxModule module, IBindingCatalog bindings)
+    private static IReadOnlySet<string> RequiredCapabilities(
+        SandboxModule module,
+        IBindingCatalog bindings,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> bindingReferences)
     {
         var required = new HashSet<string>(StringComparer.Ordinal);
         foreach (var function in module.Functions)
@@ -52,7 +73,11 @@ public sealed class ModuleValidator
                 continue;
             }
 
-            foreach (var bindingId in BindingReferenceCollector.Collect(module, bindings, function.Id))
+            if (!bindingReferences.TryGetValue(function.Id, out var references)) {
+                continue;
+            }
+
+            foreach (var bindingId in references)
             {
                 if (bindings.TryGet(bindingId, out var binding) &&
                     binding.RequiredCapability is not null)

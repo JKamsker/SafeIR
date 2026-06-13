@@ -1,7 +1,25 @@
 namespace SafeIR.Runtime;
 
+using System.ComponentModel;
 using SafeIR;
 
+/// <summary>
+/// Generated-code ABI surface for SafeIR-compiled assemblies. This facade is owned by the
+/// SafeIR compiler and verifier (see <c>VerifierTypeNames.CompiledRuntimeName</c>,
+/// <c>VerificationPolicy.BoxedValueDefaults</c>, and the approved compiled binding target in
+/// <c>BindingRegistryValidator</c>). Its members exist solely so that verified, generated
+/// assemblies can call them; they are NOT a supported host API.
+/// </summary>
+/// <remarks>
+/// Do not call these members from host code. Use <c>SandboxHost</c>, bindings, policies, and
+/// verified modules instead. This type stays <see langword="public"/> because the CLR requires
+/// generated assemblies to bind against it, but it is marked
+/// <see cref="EditorBrowsableAttribute"/> <see cref="EditorBrowsableState.Never"/> so it does not
+/// surface in normal IntelliSense or API discovery as supported host surface. Method names,
+/// signatures, and metering semantics are generated-code ABI and may change without notice; they
+/// are kept in lockstep with the verifier allowlist and runtime-facade hash.
+/// </remarks>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public static class CompiledRuntime
 {
     public static void ChargeFuel(SandboxContext context, int amount) => context.ChargeFuel(amount);
@@ -57,6 +75,15 @@ public static class CompiledRuntime
         context.ChargeString(value);
         return SandboxValue.FromUri(value);
     }
+
+    public static SandboxValue StringLiteralValue(string value) => SandboxValue.FromString(value);
+
+    public static SandboxValue OpaqueIdLiteralValue(string typeName, string value)
+        => SandboxValue.FromOpaqueId(typeName, value);
+
+    public static SandboxValue PathLiteralValue(string value) => SandboxValue.FromPath(value);
+
+    public static SandboxValue UriLiteralValue(string value) => SandboxValue.FromUri(value);
 
     public static int AsI32(SandboxValue value) => ((I32Value)value).Value;
     public static long AsI64(SandboxValue value) => ((I64Value)value).Value;
@@ -140,9 +167,15 @@ public static class CompiledRuntime
     public static SandboxValue ListOf(SandboxContext context, SandboxValue[] values)
     {
         context.ChargeFuel(SandboxCollectionFuel.Copy(values.Length));
-        context.ChargeAllocation(values.Length * 16);
+        context.ChargeAllocation(SandboxCollectionFuel.AllocationBytes(values.Length, 16));
         return ChargeValue(context, SandboxValue.FromList(values));
     }
+
+    public static SandboxValue ListLiteral(SandboxContext context, SandboxType itemType, SandboxValue[] values)
+        => CompiledLiteralRuntime.ListLiteral(context, itemType, values);
+
+    public static SandboxValue ListLiteralValue(SandboxType itemType, SandboxValue[] values)
+        => CompiledLiteralRuntime.ListLiteralValue(itemType, values);
 
     public static SandboxValue ListEmpty(SandboxContext context, SandboxType itemType)
     {
@@ -153,14 +186,14 @@ public static class CompiledRuntime
 
     public static SandboxValue ListCount(SandboxContext context, SandboxValue list)
     {
-        var values = AsList(list).Values;
+        var values = AsListReadOnly(list).Values;
         context.ChargeFuel(SandboxCollectionFuel.Read(values.Count));
         return I32(values.Count);
     }
 
     public static SandboxValue ListGet(SandboxContext context, SandboxValue list, SandboxValue index)
     {
-        var values = AsList(list).Values;
+        var values = AsListReadOnly(list).Values;
         context.ChargeFuel(SandboxCollectionFuel.Read(values.Count));
         var i = AsI32(index);
         if (i < 0 || i >= values.Count)
@@ -180,66 +213,44 @@ public static class CompiledRuntime
         }
 
         context.ChargeFuel(SandboxCollectionFuel.Copy(source.Values.Count, addedCount: 1));
-        context.ChargeAllocation((source.Values.Count + 1) * 16);
+        context.ChargeAllocation(SandboxCollectionFuel.AllocationBytes(
+            source.Values.Count,
+            addedCount: 1,
+            bytesPerElement: 16));
         var values = source.Values.ToList();
         values.Add(item);
         return ChargeValue(context, SandboxValue.FromList(values, source.ItemType));
     }
 
     public static SandboxValue MapEmpty(SandboxContext context, SandboxType keyType, SandboxType valueType)
-    {
-        context.ChargeFuel(SandboxCollectionFuel.Empty());
-        context.ChargeAllocation(16);
-        return ChargeValue(context, SandboxValue.FromMap(new Dictionary<SandboxValue, SandboxValue>(), keyType, valueType));
-    }
+        => CompiledMapRuntime.Empty(context, keyType, valueType);
+
+    public static SandboxValue MapLiteral(
+        SandboxContext context,
+        SandboxType keyType,
+        SandboxType valueType,
+        SandboxValue[] keys,
+        SandboxValue[] values)
+        => CompiledLiteralRuntime.MapLiteral(context, keyType, valueType, keys, values);
+
+    public static SandboxValue MapLiteralValue(
+        SandboxType keyType,
+        SandboxType valueType,
+        SandboxValue[] keys,
+        SandboxValue[] values)
+        => CompiledLiteralRuntime.MapLiteralValue(keyType, valueType, keys, values);
 
     public static SandboxValue MapContainsKey(SandboxContext context, SandboxValue map, SandboxValue key)
-    {
-        var typedMap = AsMap(map);
-        RequireType(key, typedMap.KeyType, "map key type mismatch");
-        context.ChargeFuel(SandboxCollectionFuel.Read(typedMap.Values.Count));
-        return Bool(typedMap.Values.ContainsKey(key));
-    }
+        => CompiledMapRuntime.ContainsKey(context, map, key);
 
     public static SandboxValue MapGet(SandboxContext context, SandboxValue map, SandboxValue key)
-    {
-        var typedMap = AsMap(map);
-        RequireType(key, typedMap.KeyType, "map key type mismatch");
-        context.ChargeFuel(SandboxCollectionFuel.Read(typedMap.Values.Count));
-        if (!typedMap.Values.TryGetValue(key, out var value))
-        {
-            throw new SandboxRuntimeException(new SandboxError(SandboxErrorCode.NotFound, "map key was not found"));
-        }
-
-        return value;
-    }
+        => CompiledMapRuntime.Get(context, map, key);
 
     public static SandboxValue MapSet(SandboxContext context, SandboxValue map, SandboxValue key, SandboxValue value)
-    {
-        var typedMap = AsMap(map);
-        RequireType(key, typedMap.KeyType, "map key type mismatch");
-        context.ChargeFuel(SandboxCollectionFuel.Copy(typedMap.Values.Count, addedCount: 1));
-        RequireType(value, typedMap.ValueType, "map value type mismatch");
-        var count = typedMap.Values.ContainsKey(key) ? typedMap.Values.Count : typedMap.Values.Count + 1;
-        context.ChargeAllocation(Math.Max(1, count) * 32);
-        var values = new Dictionary<SandboxValue, SandboxValue>(typedMap.Values)
-        {
-            [key] = value
-        };
-        return ChargeValue(context, SandboxValue.FromMap(values, typedMap.KeyType, typedMap.ValueType));
-    }
+        => CompiledMapRuntime.Set(context, map, key, value);
 
     public static SandboxValue MapRemove(SandboxContext context, SandboxValue map, SandboxValue key)
-    {
-        var typedMap = AsMap(map);
-        RequireType(key, typedMap.KeyType, "map key type mismatch");
-        context.ChargeFuel(SandboxCollectionFuel.Copy(typedMap.Values.Count));
-        var count = typedMap.Values.ContainsKey(key) ? typedMap.Values.Count - 1 : typedMap.Values.Count;
-        context.ChargeAllocation(Math.Max(1, count) * 32);
-        var values = new Dictionary<SandboxValue, SandboxValue>(typedMap.Values);
-        values.Remove(key);
-        return ChargeValue(context, SandboxValue.FromMap(values, typedMap.KeyType, typedMap.ValueType));
-    }
+        => CompiledMapRuntime.Remove(context, map, key);
 
     public static SandboxValue CallBinding(SandboxContext context, string id, SandboxValue[] args)
         => CompiledBindingDispatcher.CallBinding(context, id, args);
@@ -254,8 +265,23 @@ public static class CompiledRuntime
         var elementCount = Math.Max(1L, count);
         context.ChargeFuel(elementCount);
         context.ChargeAllocation(checked(elementCount * 8));
+
+        // Zero-argument compiled binding calls do not need a fresh heap array:
+        // the emitter never stores into it (no Stelem_Ref is emitted for an empty
+        // argument list) and an empty array is immutable, so the shared singleton
+        // is safe to reuse even though it escapes into the BindingInvoker delegate.
+        // Fuel and allocation charges above are intentionally unchanged so the
+        // observable resource accounting stays identical to allocating the array.
+        if (count == 0)
+        {
+            return Array.Empty<SandboxValue>();
+        }
+
         return new SandboxValue[count];
     }
+
+    public static SandboxValue[] CreateLiteralValueArray(int count)
+        => CompiledLiteralRuntime.CreateValueArray(count);
 
     private static ListValue AsList(SandboxValue value)
     {
@@ -264,18 +290,13 @@ public static class CompiledRuntime
         return list;
     }
 
-    private static MapValue AsMap(SandboxValue value)
-    {
-        var map = value as MapValue ?? throw InvalidInput("expected map value");
-        SandboxValueValidator.RequireType(map, map.Type, "map entry type mismatch");
-        return map;
-    }
-
-    private static SandboxValue RequireType(SandboxValue value, SandboxType expected, string message)
-    {
-        SandboxValueValidator.RequireType(value, expected, message);
-        return value;
-    }
+    // Read-only collection operations only need the runtime kind, not a recursive
+    // re-walk of every element. Collection contents are already validated against
+    // their declared element types at trust boundaries (entrypoint inputs via
+    // EntrypointBinder and binding returns via ChargeBindingReturn) and stay typed
+    // through every internal constructor, so reads can trust the snapshotted value.
+    private static ListValue AsListReadOnly(SandboxValue value)
+        => value as ListValue ?? throw InvalidInput("expected list value");
 
     private static SandboxValue ChargeValue(SandboxContext context, SandboxValue value)
     {

@@ -89,6 +89,9 @@ public interface IDamageFormula
     int Calculate(DamageInput input);
 }
 
+// Defined in the purpose-agnostic SafeIR.Server.Abstractions package
+// (namespace SafeIR.Server.Abstractions), alongside [Plugin], HookContext,
+// IPluginMessageSink, IPluginEventAdapter<TEvent>, and LiveSettingAttribute.
 public interface IEventKernel<TEvent>
 {
     bool ShouldHandle(TEvent e, HookContext context);
@@ -135,7 +138,7 @@ Plugin developers write normal-looking C# against approved contracts.
 Example:
 
 ```csharp
-[GamePlugin("epic-items-only")]
+[Plugin("epic-items-only")]
 public sealed partial class EpicItemsOnly : IItemFilter
 {
     public bool Accept(ItemView item, PlayerView player)
@@ -151,7 +154,7 @@ contract guidance until the host provides a matching adapter/lowering path.
 For event handling:
 
 ```csharp
-[GamePlugin("fire-damage")]
+[Plugin("fire-damage")]
 public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 {
     [LiveSetting]
@@ -251,6 +254,8 @@ The plugin server exposes hooks as server-side pipelines.
 Example:
 
 ```csharp
+server.RegisterEventAdapter(DamageEventAdapter.Instance);
+
 server.Hooks.On<DamageEvent>()
     .UseKernel<FireDamageKernel>();
 ```
@@ -289,6 +294,9 @@ must declare the event adapter parameters first, followed by live setting
 parameters, with exact names, types, and order.
 Event shape validation is owned by the trusted event adapter; the adapter must expose only approved
 snapshot fields and convert them to the declared `SandboxValue` inputs.
+Production servers should register reviewed event adapters before installing packages or wiring
+hooks. Convention/discovery adapters are a development convenience, not the recommended production
+boundary.
 
 ---
 
@@ -405,7 +413,7 @@ This is the preferred main plugin authoring model.
 Example:
 
 ```csharp
-[GamePlugin("fire-damage")]
+[Plugin("fire-damage")]
 public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 {
     [LiveSetting]
@@ -435,6 +443,8 @@ public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 Registration:
 
 ```csharp
+server.RegisterEventAdapter(DamageEventAdapter.Instance);
+
 server.Hooks.On<DamageEvent>()
     .UseKernel<FireDamageKernel>();
 ```
@@ -766,7 +776,7 @@ Example:
   "effects": [
     "Cpu",
     "Alloc",
-    "GameStateWrite",
+    "HostStateWrite",
     "Audit"
   ],
   "liveSettings": [
@@ -951,6 +961,15 @@ The server must still re-validate the uploaded package.
 
 Local tooling is a developer-experience feature, not the final trust boundary.
 
+When the server re-validates an uploaded or generated package, the `SafeIR.Plugins` runtime emits
+stable `SGP*` diagnostics from package install, prepared-package validation, kernel-entrypoint
+checks, and live-setting validation. These runtime diagnostics are distinct from the analyzer-local
+`SGP001`/`SGP020` SDK diagnostics shown above. The public `PluginDiagnosticCodes` reference in the
+`SafeIR.Plugins` namespace documents every runtime `SGP*` code with its emitting phase, the
+audience that must fix it (plugin author vs. host operator), the likely cause, and a remediation
+note. See the "Plugin Runtime Diagnostics" section of the repository `README.md` for the full code
+table and a triage example.
+
 ---
 
 # 17. Recommended Documentation Examples
@@ -968,7 +987,7 @@ The public documentation should introduce the system in this order:
 Recommended flagship example:
 
 ```csharp
-[GamePlugin("fire-damage")]
+[Plugin("fire-damage")]
 public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 {
     [LiveSetting]
@@ -994,6 +1013,8 @@ public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 Registration:
 
 ```csharp
+server.RegisterEventAdapter(DamageEventAdapter.Instance);
+
 server.Hooks.On<DamageEvent>()
     .UseKernel<FireDamageKernel>();
 ```

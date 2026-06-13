@@ -50,7 +50,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = ExecutionMode.Compiled,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -84,7 +84,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = options.Mode,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -122,7 +122,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = ExecutionMode.Compiled,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -153,7 +153,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = options.Mode,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -196,7 +196,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = options.Mode,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -235,7 +235,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = options.Mode,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -268,7 +268,7 @@ public sealed partial class SandboxHost
             Succeeded = false,
             Error = error,
             ResourceUsage = budget.Snapshot(),
-            AuditEvents = audit.Events,
+            AuditEvents = audit.OwnedEventSnapshot(),
             ActualMode = options.Mode,
             ExecutionDispatched = false,
             ModuleHash = plan.ModuleHash,
@@ -301,6 +301,12 @@ public sealed partial class SandboxHost
         bool executionDispatched)
     {
         var cacheStatus = "None";
+        var fields = RunSummaryAuditFields.Create(
+            plan,
+            budget,
+            mode,
+            cacheStatus,
+            executionDispatched: executionDispatched);
         audit.Write(new SandboxAuditEvent(
             runId,
             "RunSummary",
@@ -309,14 +315,9 @@ public sealed partial class SandboxHost
             ResourceId: $"module:{plan.ModuleHash}",
             ErrorCode: error.Code,
             Message: $"mode={mode.ToString().ToLowerInvariant()} cacheStatus={cacheStatus} " +
-                     $"plan={plan.PlanHash} policy={plan.PolicyHash} policyId={plan.Policy.PolicyId} " +
+                     $"plan={plan.PlanHash} policy={plan.PolicyHash} policyId={fields["policyId"]} " +
                      $"bindings={plan.BindingManifestHash} fuel={budget.FuelUsed}/{budget.Limits.MaxFuel}",
-            Fields: RunSummaryAuditFields.Create(
-                plan,
-                budget,
-                mode,
-                cacheStatus,
-                executionDispatched: executionDispatched)));
+            Fields: fields));
     }
 
     private static DateTimeOffset AuditTime(ExecutionPlan plan)
@@ -335,6 +336,13 @@ internal static class SandboxAuditEventSequence
             sink.Write(auditEvent);
         }
 
-        return sink.Events.ToArray();
+        return sink.OwnedEventSnapshot();
     }
+
+    /// <summary>
+    /// Wraps the sink's already-fresh event array in a read-only collection without copying
+    /// it again, producing an owned immutable snapshot that result construction can adopt.
+    /// </summary>
+    internal static IReadOnlyList<SandboxAuditEvent> OwnedEventSnapshot(this InMemoryAuditSink sink)
+        => sink.SnapshotEvents();
 }

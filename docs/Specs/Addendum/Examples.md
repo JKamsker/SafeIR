@@ -51,8 +51,14 @@ lowers `IEventKernel<TEvent>` kernels into plugin packages.
 
 Use kernels when the plugin needs both a server-side filter and an approved action path. The current sample kernel lives at `examples\LocalPlugin\SafeIR.PluginLocal\FireDamageKernel.cs`.
 
+The authoring contracts (`[Plugin]`, `IEventKernel<TEvent>`, `HookContext`, `IPluginMessageSink`,
+`IPluginEventAdapter<TEvent>`, `LiveSettingAttribute`) live in the purpose-agnostic
+`SafeIR.Server.Abstractions` package; add `using SafeIR.Server.Abstractions;` to kernel sources.
+
 ```csharp
-[GamePlugin("fire-damage")]
+using SafeIR.Server.Abstractions;
+
+[Plugin("fire-damage")]
 public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 {
     public bool ShouldHandle(DamageEvent e, HookContext ctx)
@@ -74,7 +80,7 @@ public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 Kernel properties become live settings when the generated package manifest exposes them as live state metadata. The authoring-side C# uses `[LiveSetting]`; the source generator mirrors the same settings into the manifest.
 
 ```csharp
-[GamePlugin("fire-damage")]
+[Plugin("fire-damage")]
 public sealed partial class FireDamageKernel : IEventKernel<DamageEvent>
 {
     [LiveSetting]
@@ -112,12 +118,17 @@ The server registers hooks against event adapters. Event adapters convert truste
 
 ```csharp
 var messages = new InMemoryPluginMessageSink();
-var server = PluginServer.Create(messages);
+var server = PluginServer.Create(messages, defaultPolicy: PluginMessagePolicy());
+server.RegisterEventAdapter(DamageEventAdapter.Instance);
 await server.InstallAsync(FireDamagePluginPackage.Create());
 
 server.Hooks.On<DamageEvent>()
     .UseKernel<FireDamageKernel>();
 ```
+
+Production servers should register reviewed event adapters before installing packages or wiring
+hooks. Convention/discovery adapters are a development convenience; the production posture is an
+explicit server-owned whitelist of event shapes and fields.
 
 The pipeline flow is:
 
@@ -224,11 +235,11 @@ The sample package requests:
 Effects:
   Cpu
   Alloc
-  GameStateWrite
+  HostStateWrite
   Audit
 
 Capability request:
-  game.message.write
+  host.message.write
 
 Subscription:
   DamageEvent -> FireDamageKernel
@@ -239,6 +250,15 @@ This is the data a server owner needs to show settings, defaults, ranges, reques
 ### 7. Upload Or Install Package
 
 The production server installs a plugin package from serialized JSON package data. The JSON envelope contains a manifest, entrypoint names if needed, and the Safe IR module. It does not contain an assembly path or plugin DLL reference.
+
+Reference the `SafeIR.Plugins` package for `PluginPackageJsonSerializer` and the
+`InstallJsonAsync` extension. The helper types are plugin-facing APIs used from the
+`SafeIR.Plugins` namespace (the package references `SafeIR.Serialization.Json` for the module-IR
+round trip):
+
+```csharp
+using SafeIR.Plugins;
+```
 
 ```csharp
 var package = FireDamagePluginPackage.Create();
@@ -256,18 +276,20 @@ var package = FireDamagePluginPackage.Create();
 var kernel = await server.InstallAsync(package);
 ```
 
-The default plugin server policy grants the safe message capability:
+The default plugin server policy does not grant message-write capability. Message-sending plugins
+must install with an explicit policy grant:
 
 ```csharp
-SandboxPolicyBuilder.Create()
-    .GrantLogging()
-    .GrantGameMessageWrite()
-    .WithFuel(100_000)
-    .WithMaxHostCalls(1_000)
-    .Build();
+static SandboxPolicy PluginMessagePolicy()
+    => SandboxPolicyBuilder.Create()
+        .GrantLogging()
+        .GrantHostMessageWrite()
+        .WithFuel(100_000)
+        .WithMaxHostCalls(1_000)
+        .Build();
 ```
 
-If the policy does not grant `game.message.write`, package preparation fails closed with a policy diagnostic. The server still re-validates uploaded JSON packages; local analyzer diagnostics are developer-experience feedback, not the trust boundary.
+If the policy does not grant `host.message.write`, package preparation fails closed with a policy diagnostic. The server still re-validates uploaded JSON packages; local analyzer diagnostics are developer-experience feedback, not the trust boundary.
 
 ### 8. Observe Runtime Execution
 
@@ -284,6 +306,143 @@ foreach (var observation in kernel.ExecutionObservations) {
 ```
 
 Each observation includes the entrypoint name, requested mode, actual mode, success flag, safe fallback reason when present, cache/materialization status, and compiled runtime envelope fields when compiled execution was used.
+
+## Custom Host Binding Example
+
+Host-owned bindings are the main extensibility point for exposing product-specific data and
+services to verified Safe IR. The runnable example lives in
+`examples\Capabilities\SafeIR.Example.Capabilities\Examples\CustomBindingExample.cs` and is exercised by
+the capabilities example run and the docs smoke script.
+
+The example authors a `tenant.lookup` binding and shows every field a binding author must decide:
+
+```csharp
+new BindingDescriptor(
+    "tenant.lookup",
+    SemVersion.One,
+    [SandboxType.I32],
+    SandboxType.I32,
+    // Read-only external access still emits audit, so include the Audit effect.
+    SandboxEffect.Cpu | SandboxEffect.HostStateRead | SandboxEffect.Audit,
+    "tenant.read",                       // required capability (custom, so a grant validator is mandatory)
+    BindingCostModel.Fixed(8),           // deterministic cost: one host call, flat fuel
+    AuditLevel.PerCall,                  // external bindings must be audited
+    BindingSafety.ReadOnlyExternal,      // safety classification
+    InvokeTenantLookup,                  // BindingInvoker
+    CompiledBinding.RuntimeStub(         // compiled-mode dispatch stub
+        typeof(CompiledRuntime).FullName!,
+        nameof(CompiledRuntime.CallBinding)),
+    ValidateTenantReadGrant);            // CapabilityGrantValidator
+```
+
+Register it, grant the capability, import JSON IR that calls it, and inspect the value and audit:
+
+```csharp
+using var host = SandboxHost.Create(builder =>
+{
+    builder.AddBinding(TenantLookupBinding());
+    builder.UseInterpreter();
+    builder.UseCompilerIfAvailable();
+});
+
+var module = await host.ImportJsonAsync(tenantLookupJsonIr);
+var policy = SandboxPolicyBuilder.Create()
+    .Grant("tenant.read", new { maxTenantId = 100 },
+        SandboxEffect.Cpu | SandboxEffect.HostStateRead | SandboxEffect.Audit)
+    .WithFuel(10_000)
+    .WithMaxHostCalls(16)
+    .Build();
+
+var plan = await host.PrepareAsync(module, policy);
+var result = await host.ExecuteAsync(plan, "main", SandboxValue.Unit);
+
+var value = ((I32Value)result.Value!).Value;
+var audit = result.AuditEvents.Single(e => e.BindingId == "tenant.lookup");
+```
+
+Safe defaults a binding author should follow:
+
+- **Required capability**: any binding that reaches outside pure CPU must declare a capability;
+  a custom (non-built-in) capability also requires a `CapabilityGrantValidator` that fails closed
+  on unsupported or invalid grant parameters.
+- **Deterministic cost model**: prefer `BindingCostModel.Fixed(...)` or `PerByte(...)` so fuel and
+  host-call accounting are predictable.
+- **Audit level**: external bindings must use at least `AuditLevel.PerCall` and emit a `BindingCall`
+  audit event populated with `context.BindingAuditFields(...)`.
+- **Safety classification**: pick the narrowest `BindingSafety` that fits; `ReadOnlyExternal` for
+  reads, `SideEffectingExternal` for writes.
+- **Resource charging**: the host charges the declared cost and one host call per invocation, visible
+  through `result.ResourceUsage.HostCalls`.
+- **Compiled runtime stub**: custom bindings dispatch through
+  `CompiledBinding.RuntimeStub(typeof(CompiledRuntime).FullName!, nameof(CompiledRuntime.CallBinding))`.
+
+## Audit Observer Example
+
+`SandboxHostBuilder.ForwardAuditEventsTo(...)` is the public host integration point for operational
+audit streaming (telemetry, billing, incident review, compliance export). The runnable example lives
+in `examples\Capabilities\SafeIR.Example.Capabilities\Examples\AuditObserverExample.cs` and is exercised by
+the capabilities example run and the docs smoke script.
+
+The example registers two observers and runs a minimal module:
+
+```csharp
+var observed = new List<SandboxAuditEvent>();
+
+using var host = SandboxHost.Create(builder =>
+{
+    builder.AddDefaultPureBindings();
+    builder.UseInterpreter();
+    // A failing telemetry sink must not change sandbox results or starve later observers.
+    builder.ForwardAuditEventsTo(_ => throw new InvalidOperationException("telemetry sink offline"));
+    builder.ForwardAuditEventsTo(observed.Add);
+});
+
+var plan = await host.PrepareAsync(module, policy);
+var result = await host.ExecuteAsync(plan, "main", input,
+    new SandboxExecutionOptions { Mode = ExecutionMode.Interpreted });
+
+// Observed events equal the returned result's audit events, in sequence order, even though the
+// first observer threw on every event.
+var matchesResult = observed.SequenceEqual(result.AuditEvents);
+```
+
+The example prints that the throwing observer did not change `result.Succeeded`, that the surviving
+observer received exactly `result.AuditEvents`, and that the events arrive in `SequenceNumber` order.
+This is the contract documented in `docs/Specs/Initial/safe-ir-sandbox-spec/spec/16-public-api.md`:
+observer failures are isolated and do not change the returned `SandboxExecutionResult` or prevent
+later observers from receiving the same sequenced audit events.
+
+## Resource Limits Example
+
+`WithFuel(...)` is only one of the public quota knobs. `SandboxPolicyBuilder` also exposes
+`WithMaxLoopIterations`, `WithMaxHostCalls`, `WithWallTime`, `WithMaxCallDepth`, `WithMaxAllocatedBytes`,
+the collection-shape limits (`WithMaxListLength`, `WithMaxMapEntries`, `WithMaxCollectionDepth`,
+`WithMaxTotalCollectionElements`), the log limits (`WithMaxLogEvents`, `WithMaxLogMessageLength`), and the
+string limits (`WithMaxStringLength`, `WithMaxTotalStringBytes`). The runnable proof lives in
+`examples\Capabilities\SafeIR.Example.Capabilities\Examples\ResourceLimitsExample.cs` and is
+exercised by the capabilities example run and the docs smoke script.
+
+The example runs small JSON IR modules under intentionally tight non-fuel limits and prints the public
+result code plus the matching `SandboxResourceUsage` counter for each case:
+
+```csharp
+var policy = SandboxPolicyBuilder.Create()
+    .WithFuel(10_000)
+    .WithMaxLoopIterations(3)
+    .Build();
+
+var plan = await host.PrepareAsync(module, policy);
+var result = await host.ExecuteAsync(plan, "main", SandboxValue.Unit);
+
+// result.Error?.Code is SandboxErrorCode.QuotaExceeded and
+// result.ResourceUsage.LoopIterations reports the metered iterations.
+```
+
+The walkthrough covers loop-iteration exhaustion, host-call exhaustion, wall-time timeout
+(`SandboxErrorCode.Timeout`, not `QuotaExceeded`), list-shape rejection, and string-shape rejection.
+Each case asserts the documented `SandboxErrorCode` and the corresponding `SandboxResourceUsage` field so
+integrators can recognize a denied run and read back what the runtime metered, matching the resource-usage
+contract in `docs/Specs/Initial/safe-ir-sandbox-spec/spec/16-public-api.md`.
 
 ## Flagship Fire Damage Example
 
@@ -305,10 +464,12 @@ The server executes verified Safe IR, not arbitrary plugin DLLs.
 
 ## Local Kernel Example
 
-Run the complete addendum example set:
+Run the complete addendum example set, split across three topic projects:
 
 ```powershell
-dotnet run --project examples\Addendum\SafeIR.AddendumExamples\SafeIR.AddendumExamples.csproj
+dotnet run --project examples\Capabilities\SafeIR.Example.Capabilities\SafeIR.Example.Capabilities.csproj
+dotnet run --project examples\Hosting\SafeIR.Example.Hosting\SafeIR.Example.Hosting.csproj
+dotnet run --project examples\PluginAuthoring\SafeIR.Example.PluginAuthoring\SafeIR.Example.PluginAuthoring.csproj
 ```
 
 Run:
@@ -342,3 +503,59 @@ dotnet run --project examples\PluginIpc\SafeIR.PluginIpc.Client\SafeIR.PluginIpc
 ```
 
 The client reads settings, publishes a matching event, changes live settings over IPC, and publishes again to prove the server-side hook pipeline uses the updated state.
+
+## Game Server Golden Example
+
+The golden example combines every layer of the plugin model into one runnable scenario. It lives in:
+
+- `examples\GameServer\SafeIR.Game.Server.Abstractions` — the shared contract: the
+  `MonsterAggroEvent` and `AttackEvent` records with their `IPluginEventAdapter<T>` adapters, the
+  `[ShaRpcService] IGamePluginControlService` IPC contract with MessagePack DTOs, and the
+  plugin -> server command DSL helpers in `GameCommands`.
+- `examples\GameServer\SafeIR.Game.PluginHost` — the child process that authors two kernels
+  (`GuardianKernel`, `RetaliationKernel`), previews them locally, and ships them over IPC.
+- `examples\GameServer\SafeIR.Game.Server` — the parent process: a deterministic 1D simulation, the
+  example-defined command sink, the IPC service, and the orchestration entrypoint.
+
+### Filter + projection + invoke
+
+Each kernel's `ShouldHandle` is the server-side filter and `Handle` is the approved action. The
+generator lowers arithmetic and comparisons in `ShouldHandle` and a single string-concat
+`ctx.Messages.Send(...)` in `Handle`:
+
+```csharp
+[Plugin("guardian")]
+public sealed partial class GuardianKernel : IEventKernel<MonsterAggroEvent>
+{
+    public bool ShouldHandle(MonsterAggroEvent e, HookContext ctx)
+        => e.MonsterLevel - e.PlayerLevel >= LevelGap &&
+           e.Distance <= AggroRange &&
+           e.PlayerLevel <= ProtectMaxLevel;
+
+    public void Handle(MonsterAggroEvent e, HookContext ctx)
+        => ctx.Messages.Send(e.MonsterId, "calm:" + e.PlayerId + ":" + CalmStrength);
+}
+```
+
+The plugin host runs the same filter/projection/invoke pipeline in-process first (a local preview)
+so the author sees which events match and which command payloads the kernels emit before shipping
+anything. The server then runs the identical lowered IR — never the kernel source.
+
+### Settings binding, IPC, and the example-defined capability
+
+The host ships each kernel as opaque verified IR with `PluginPackageJsonSerializer.Export(...)` plus
+`InstallPluginAsync(json)`, then tunes live settings over IPC with one atomic
+`UpdateSettingsAsync("guardian", [...], atomic: true)` batch. The server installs the IR with
+`server.InstallJsonAsync(...)` and wires the hook for whichever event the kernel's manifest
+subscription declares.
+
+The plugin's only sandbox capability is `host.message.write`. The *meaning* of those messages is
+defined by the example, not by SafeIR core: `Simulation\GameCommandSink.cs` implements
+`IPluginMessageSink`, parses the `calm:`/`taunt:` DSL, validates it (known verb, known/opaque entity
+ids, clamped strength), and applies it to the world. Invalid or unknown commands are ignored safely
+and never throw back into the sandbox. The server contrasts a baseline phase (no plugins) with a
+with-plugin phase to show the untrusted kernels measurably changing game behavior.
+
+```powershell
+dotnet run --project examples\GameServer\SafeIR.Game.Server\SafeIR.Game.Server.csproj
+```

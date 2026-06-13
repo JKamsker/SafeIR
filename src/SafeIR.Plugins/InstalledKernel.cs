@@ -14,9 +14,11 @@ public sealed class InstalledKernel
     private readonly KernelEntrypoints _entrypoints;
     private readonly LiveStateSyncRegistry _liveStateSync;
     private readonly PluginExecutionObserver _executionObserver = new();
+    private readonly PluginEventAdapterValidationCache _adapterValidation = new();
     private readonly Dictionary<Type, object> _typedValues = [];
     private readonly Dictionary<Type, LiveUpdateMode> _updateModes = [];
     private readonly PendingLiveUpdateQueue _pendingLiveUpdates = new();
+    private readonly CancellationTokenSource _revocation = new();
     private int _revoked;
 
     internal InstalledKernel(
@@ -43,7 +45,13 @@ public sealed class InstalledKernel
     public IReadOnlyList<PluginExecutionObservation> ExecutionObservations => _executionObserver.Snapshot();
     public bool IsRevoked => Volatile.Read(ref _revoked) != 0;
 
-    public void Revoke() => Volatile.Write(ref _revoked, 1);
+    public void Revoke()
+    {
+        if (Interlocked.Exchange(ref _revoked, 1) == 0)
+        {
+            _revocation.Cancel();
+        }
+    }
 
     internal void RegisterStateSynchronizer(Type stateType, Action synchronize)
         => _liveStateSync.Register(stateType, synchronize);
@@ -105,8 +113,10 @@ public sealed class InstalledKernel
         try
         {
             PluginKernelRevocation.ThrowIfRevoked(IsRevoked);
+            ValidateFor(adapter);
             var input = BuildInput(adapter, e);
             var result = await ExecutePreparedAsync(_entrypoints.ShouldHandle, input, cancellationToken).ConfigureAwait(false);
+            PluginKernelRevocation.ThrowIfRevoked(IsRevoked);
             return AsShouldHandleResult(result);
         }
         finally
@@ -124,8 +134,10 @@ public sealed class InstalledKernel
         try
         {
             PluginKernelRevocation.ThrowIfRevoked(IsRevoked);
+            ValidateFor(adapter);
             var input = BuildInput(adapter, e);
             _ = await ExecutePreparedAsync(_entrypoints.Handle, input, cancellationToken).ConfigureAwait(false);
+            PluginKernelRevocation.ThrowIfRevoked(IsRevoked);
         }
         finally
         {
@@ -146,6 +158,7 @@ public sealed class InstalledKernel
                 return;
             }
 
+            ValidateFor(adapter);
             var input = BuildInput(adapter, e);
             var result = await ExecutePreparedAsync(_entrypoints.ShouldHandle, input, cancellationToken).ConfigureAwait(false);
             if (AsShouldHandleResult(result))
@@ -240,21 +253,29 @@ public sealed class InstalledKernel
     }
 
     internal void ValidateFor<TEvent>(IPluginEventAdapter<TEvent> adapter)
-        => KernelEntrypointValidator.Validate(Manifest, _plan, _entrypoints, adapter);
+        => _adapterValidation.Validate(Manifest, _plan, _entrypoints, adapter);
 
     private async ValueTask<SandboxValue> ExecutePreparedAsync(
         string entrypoint,
         SandboxValue input,
         CancellationToken cancellationToken)
     {
+        using var executionCancellation = PluginExecutionCancellation.Create(
+            cancellationToken,
+            _revocation.Token);
         var result = await _host.ExecuteAsync(
                 _plan,
                 entrypoint,
                 input,
                 new SandboxExecutionOptions { Mode = _executionMode },
-                cancellationToken)
+                executionCancellation.Token)
             .ConfigureAwait(false);
         _executionObserver.Record(entrypoint, _executionMode, result);
+        if (IsRevoked)
+        {
+            PluginKernelRevocation.ThrowIfRevoked(true);
+        }
+
         if (!result.Succeeded)
         {
             throw new SandboxRuntimeException(result.Error ?? new SandboxError(SandboxErrorCode.HostFailure, "kernel execution failed"));
@@ -264,44 +285,13 @@ public sealed class InstalledKernel
     }
 
     private SandboxValue BuildInput<TEvent>(IPluginEventAdapter<TEvent> adapter, TEvent e)
-    {
-        var deferredUpdates = _liveStateSync.SynchronizeForInput();
-        var eventValues = adapter.ToSandboxValues(e);
-        var liveSettings = Manifest.LiveSettings;
-        var valueCount = eventValues.Count + liveSettings.Count;
-        var input = valueCount switch
-        {
-            0 => SandboxValue.Unit,
-            1 => eventValues.Count == 1 ? eventValues[0] : Value.ToSandboxValue(liveSettings[0]),
-            _ => BuildInputList(eventValues, liveSettings)
-        };
-
-        foreach (var update in deferredUpdates)
-        {
-            _pendingLiveUpdates.Enqueue(update);
-        }
-
-        return input;
-    }
-
-    private SandboxValue BuildInputList(
-        IReadOnlyList<SandboxValue> eventValues,
-        IReadOnlyList<LiveSettingDefinition> liveSettings)
-    {
-        if (liveSettings.Count == 0)
-        {
-            return SandboxValue.FromList(eventValues, eventValues[0].Type);
-        }
-
-        var values = new SandboxValue[eventValues.Count + liveSettings.Count];
-        for (var i = 0; i < eventValues.Count; i++)
-        {
-            values[i] = eventValues[i];
-        }
-
-        Value.CopySandboxValues(liveSettings, values, eventValues.Count);
-        return SandboxValue.FromList(values, values[0].Type);
-    }
+        => PluginKernelInputBuilder.Build(
+            adapter,
+            e,
+            _liveStateSync.SynchronizeForInput(),
+            Manifest.LiveSettings,
+            Value,
+            _pendingLiveUpdates.Enqueue);
 
     private void RefreshTypedValuesFromStore()
     {

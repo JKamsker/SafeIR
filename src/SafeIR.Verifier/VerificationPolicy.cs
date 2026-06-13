@@ -1,5 +1,6 @@
 namespace SafeIR.Verifier;
 
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text;
 using SafeIR;
@@ -16,6 +17,20 @@ public sealed record VerificationPolicy(
     string VerifierVersion,
     VerificationManifestIdentity? ExpectedManifestIdentity = null)
 {
+    private IReadOnlySet<string> _allowedAssemblies = Freeze(AllowedAssemblies);
+    private IReadOnlySet<string> _allowedAssemblyIdentities = Freeze(AllowedAssemblyIdentities);
+    private IReadOnlySet<string> _allowedTypes = Freeze(AllowedTypes);
+    private IReadOnlySet<string> _allowedMembers = Freeze(AllowedMembers);
+    private IReadOnlySet<string> _forbiddenTypePrefixes = Freeze(ForbiddenTypePrefixes);
+    private IReadOnlySet<string> _runtimeFacadeIdentities = Freeze(RuntimeFacadeIdentities);
+
+    public IReadOnlySet<string> AllowedAssemblies { get => _allowedAssemblies; init => _allowedAssemblies = Freeze(value); }
+    public IReadOnlySet<string> AllowedAssemblyIdentities { get => _allowedAssemblyIdentities; init => _allowedAssemblyIdentities = Freeze(value); }
+    public IReadOnlySet<string> AllowedTypes { get => _allowedTypes; init => _allowedTypes = Freeze(value); }
+    public IReadOnlySet<string> AllowedMembers { get => _allowedMembers; init => _allowedMembers = Freeze(value); }
+    public IReadOnlySet<string> ForbiddenTypePrefixes { get => _forbiddenTypePrefixes; init => _forbiddenTypePrefixes = Freeze(value); }
+    public IReadOnlySet<string> RuntimeFacadeIdentities { get => _runtimeFacadeIdentities; init => _runtimeFacadeIdentities = Freeze(value); }
+
     public static VerificationPolicy BoxedValueDefaults()
         => new(
             new HashSet<string>(StringComparer.Ordinal) {
@@ -51,6 +66,10 @@ public sealed record VerificationPolicy(
                 RuntimeMember("OpaqueIdConst", $"{SandboxContextName},{StringName},{StringName}", SandboxValueName),
                 RuntimeMember("PathConst", $"{SandboxContextName},{StringName}", SandboxValueName),
                 RuntimeMember("UriConst", $"{SandboxContextName},{StringName}", SandboxValueName),
+                RuntimeMember("StringLiteralValue", StringName, SandboxValueName),
+                RuntimeMember("OpaqueIdLiteralValue", $"{StringName},{StringName}", SandboxValueName),
+                RuntimeMember("PathLiteralValue", StringName, SandboxValueName),
+                RuntimeMember("UriLiteralValue", StringName, SandboxValueName),
                 RuntimeMember("AsI32", SandboxValueName, Int32Name),
                 RuntimeMember("AsI64", SandboxValueName, Int64Name),
                 RuntimeMember("AsBool", SandboxValueName, BooleanName),
@@ -91,12 +110,17 @@ public sealed record VerificationPolicy(
                 RuntimeMember("CeilF64", SandboxValueName, SandboxValueName),
                 RuntimeMember("RoundF64", SandboxValueName, SandboxValueName),
                 RuntimeMember("CreateValueArray", $"{SandboxContextName},{Int32Name}", SandboxValueArrayName),
+                RuntimeMember("CreateLiteralValueArray", Int32Name, SandboxValueArrayName),
                 RuntimeMember("ListEmpty", $"{SandboxContextName},{SandboxTypeName}", SandboxValueName),
                 RuntimeMember("ListOf", $"{SandboxContextName},{SandboxValueArrayName}", SandboxValueName),
+                RuntimeMember("ListLiteral", $"{SandboxContextName},{SandboxTypeName},{SandboxValueArrayName}", SandboxValueName),
+                RuntimeMember("ListLiteralValue", $"{SandboxTypeName},{SandboxValueArrayName}", SandboxValueName),
                 RuntimeMember("ListCount", $"{SandboxContextName},{SandboxValueName}", SandboxValueName),
                 RuntimeMember("ListGet", $"{SandboxContextName},{SandboxValueName},{SandboxValueName}", SandboxValueName),
                 RuntimeMember("ListAdd", $"{SandboxContextName},{SandboxValueName},{SandboxValueName}", SandboxValueName),
                 RuntimeMember("MapEmpty", $"{SandboxContextName},{SandboxTypeName},{SandboxTypeName}", SandboxValueName),
+                RuntimeMember("MapLiteral", $"{SandboxContextName},{SandboxTypeName},{SandboxTypeName},{SandboxValueArrayName},{SandboxValueArrayName}", SandboxValueName),
+                RuntimeMember("MapLiteralValue", $"{SandboxTypeName},{SandboxTypeName},{SandboxValueArrayName},{SandboxValueArrayName}", SandboxValueName),
                 RuntimeMember("MapContainsKey", $"{SandboxContextName},{SandboxValueName},{SandboxValueName}", SandboxValueName),
                 RuntimeMember("MapGet", $"{SandboxContextName},{SandboxValueName},{SandboxValueName}", SandboxValueName),
                 RuntimeMember("MapSet", $"{SandboxContextName},{SandboxValueName},{SandboxValueName},{SandboxValueName}", SandboxValueName),
@@ -138,6 +162,12 @@ public sealed record VerificationPolicy(
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             prefix + "|" + string.Join('|', values.Order(StringComparer.Ordinal)))))
             .ToLowerInvariant();
+
+    private static IReadOnlySet<string> Freeze(IEnumerable<string> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        return values.ToFrozenSet(StringComparer.Ordinal);
+    }
 
     private static string RuntimeMember(string name, string parameters, string returnType)
         => $"{CompiledRuntimeName}.{name}({parameters}):{returnType}";
