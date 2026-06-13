@@ -1,28 +1,45 @@
 namespace SafeIR.Game.Server;
 
 /// <summary>
-/// Implements the IPC control plane over the running <see cref="PluginServer"/> and
-/// <see cref="GameWorld"/>. The server installs untrusted plugins as opaque verified IR
-/// (<see cref="PluginServerJsonExtensions.InstallJsonAsync"/>) — it never sees kernel source — and
-/// wires the hook for whichever event the installed kernel subscribes to.
+/// Implements the IPC control plane for one plugin connection over the running <see cref="PluginServer"/>
+/// and <see cref="GameWorld"/>. The plugin installs untrusted kernels as opaque verified IR through its
+/// owning <see cref="PluginSession"/> — the server never sees kernel source — and the service wires the
+/// hook for whichever event the installed kernel subscribes to. The plugin then holds the connection
+/// (<see cref="HoldUntilShutdownAsync"/>) until the server's with-plugin phase finishes.
 /// </summary>
 internal sealed class GamePluginControlService : IGamePluginControlService
 {
     private readonly PluginServer _server;
+    private readonly PluginSession _session;
     private readonly GameCommandSink _sink;
     private readonly GameWorld _world;
+    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public GamePluginControlService(PluginServer server, GameCommandSink sink, GameWorld world)
+    public GamePluginControlService(PluginServer server, PluginSession session, GameCommandSink sink, GameWorld world)
     {
         _server = server;
+        _session = session;
         _sink = sink;
         _world = world;
     }
 
+    /// <summary>Completes once the plugin has installed its kernels and is holding the connection.</summary>
+    public Task Ready => _ready.Task;
+
+    /// <summary>Releases the plugin's <see cref="HoldUntilShutdownAsync"/> so it can disconnect.</summary>
+    public void SignalShutdown() => _shutdown.TrySetResult();
+
     public async ValueTask<string> InstallPluginAsync(string packageJson, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(packageJson);
-        var kernel = await _server.InstallJsonAsync(packageJson, cancellationToken: ct).ConfigureAwait(false);
+
+        // Grant each kernel exactly what its analyzer-derived manifest declares it needs (least
+        // privilege). The plugin cannot widen this: RequiredCapabilities reflects what the verified IR
+        // actually touches, not what the plugin asserts.
+        var package = PluginPackageJsonSerializer.Import(packageJson);
+        var policy = ServerPolicy.ForKernel(package.Manifest.RequiredCapabilities);
+        var kernel = await _session.InstallAsync(package, policy, ct).ConfigureAwait(false);
         WireHook(kernel);
         return kernel.Manifest.PluginId;
     }
@@ -41,7 +58,14 @@ internal sealed class GamePluginControlService : IGamePluginControlService
             values[update.Name] = update.Value;
         }
 
-        return _server.Kernels.Get(pluginId).ModifySettingsAsync(values, atomic, ct);
+        // Owner-checked: the session rejects ids it does not own.
+        return _session.UpdateSettingsAsync(pluginId, values, atomic, ct);
+    }
+
+    public async ValueTask HoldUntilShutdownAsync(CancellationToken ct = default)
+    {
+        _ready.TrySetResult();
+        await _shutdown.Task.ConfigureAwait(false);
     }
 
     public ValueTask<WorldSnapshot> GetWorldAsync(CancellationToken ct = default)
@@ -65,10 +89,10 @@ internal sealed class GamePluginControlService : IGamePluginControlService
         switch (subscription)
         {
             case "MonsterAggroEvent":
-                _server.Hooks.On(MonsterAggroEventAdapter.Instance).UseKernel(kernel);
+                _server.Hooks.On<MonsterAggroEvent>().UseKernel(kernel);
                 break;
             case "AttackEvent":
-                _server.Hooks.On(AttackEventAdapter.Instance).UseKernel(kernel);
+                _server.Hooks.On<AttackEvent>().UseKernel(kernel);
                 break;
             default:
                 throw new InvalidOperationException(

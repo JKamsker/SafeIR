@@ -20,26 +20,55 @@ internal static class SafeIrHandleModelFactory
         EquatableArray<EventPropertyModel> eventProperties,
         EquatableArray<LiveSettingModel> liveSettings,
         SemanticModel semanticModel,
-        CancellationToken cancellationToken)
-    {
-        var invocation = SingleSendInvocation(method, contextParameterName);
-        var arguments = SendArguments(invocation);
-        var loweringContext = new SafeIrExpressionLoweringContext(
+        CancellationToken cancellationToken,
+        ICollection<string>? capabilities = null,
+        ICollection<string>? effects = null)
+        => CreateFromSend(
+            SingleSendInvocation(method, contextParameterName),
             eventParameterName,
             eventProperties,
             liveSettings,
             semanticModel,
-            cancellationToken);
-        var target = SafeIrExpressionModelFactory.Create(
-            arguments.Target,
-            loweringContext);
-        var message = SafeIrExpressionModelFactory.Create(
-            arguments.Message,
-            loweringContext);
+            cancellationToken,
+            capabilities,
+            effects);
+
+    /// <summary>
+    /// Lowers a single <c>ctx.Messages.Send(targetId, message)</c> invocation to a handle model. Shared
+    /// by kernel <c>Handle</c> methods and lowered hook-chain <c>InvokeKernel</c> terminals.
+    /// </summary>
+    public static SafeIrHandleModel CreateFromSend(
+        InvocationExpressionSyntax sendInvocation,
+        string eventParameterName,
+        EquatableArray<EventPropertyModel> eventProperties,
+        EquatableArray<LiveSettingModel> liveSettings,
+        SemanticModel semanticModel,
+        CancellationToken cancellationToken,
+        ICollection<string>? capabilities = null,
+        ICollection<string>? effects = null)
+        => CreateFromSend(
+            sendInvocation,
+            new SafeIrExpressionLoweringContext(
+                eventParameterName, eventProperties, liveSettings, semanticModel, cancellationToken,
+                capabilities: capabilities, effects: effects));
+
+    /// <summary>Lowers a send using a prebuilt context (e.g. one carrying a Select-projected element).</summary>
+    public static SafeIrHandleModel CreateFromSend(
+        InvocationExpressionSyntax sendInvocation,
+        SafeIrExpressionLoweringContext loweringContext)
+    {
+        var arguments = SendArguments(sendInvocation);
+        var target = SafeIrExpressionModelFactory.Create(arguments.Target, loweringContext);
+        var message = SafeIrExpressionModelFactory.Create(arguments.Message, loweringContext);
         RequireString(target, "targetId");
         RequireString(message, "message");
+        loweringContext.Capabilities?.Add(SafeIrGenerationNames.Capabilities.MessageWrite);
         return new SafeIrHandleModel(target, message);
     }
+
+    /// <summary>Whether an expression is a <c>&lt;context&gt;.Messages.Send</c> member access.</summary>
+    public static bool IsContextSend(ExpressionSyntax expression, string contextParameterName)
+        => IsContextMessageSend(expression, contextParameterName);
 
     private static SendArgumentExpressions SendArguments(InvocationExpressionSyntax invocation)
     {

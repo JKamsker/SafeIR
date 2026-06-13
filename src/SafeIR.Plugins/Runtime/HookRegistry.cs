@@ -9,15 +9,18 @@ public sealed class HookRegistry
     private readonly IPluginMessageSink _messages;
     private readonly PluginEventAdapterRegistry _events;
     private readonly KernelRegistry _kernels;
+    private readonly Func<PluginPackage, InstalledKernel>? _installer;
 
     internal HookRegistry(
         IPluginMessageSink messages,
         PluginEventAdapterRegistry events,
-        KernelRegistry kernels)
+        KernelRegistry kernels,
+        Func<PluginPackage, InstalledKernel>? installer = null)
     {
         _messages = messages;
         _events = events;
         _kernels = kernels;
+        _installer = installer;
     }
 
     public HookPipeline<TEvent> On<TEvent>()
@@ -45,7 +48,7 @@ public sealed class HookRegistry
                 return pipeline;
             }
 
-            var created = new HookPipeline<TEvent>(adapter, _messages, _kernels);
+            var created = new HookPipeline<TEvent>(adapter, _messages, _kernels, _installer);
             _pipelines[typeof(TEvent)] = created;
             return created;
         }
@@ -79,15 +82,38 @@ public sealed class HookPipeline<TEvent>
     private readonly IPluginEventAdapter<TEvent> _adapter;
     private readonly IPluginMessageSink _messages;
     private readonly KernelRegistry _kernels;
+    private readonly Func<PluginPackage, InstalledKernel>? _installer;
 
     internal HookPipeline(
         IPluginEventAdapter<TEvent> adapter,
         IPluginMessageSink messages,
-        KernelRegistry kernels)
+        KernelRegistry kernels,
+        Func<PluginPackage, InstalledKernel>? installer = null)
     {
         _adapter = adapter;
         _messages = messages;
         _kernels = kernels;
+        _installer = installer;
+    }
+
+    /// <summary>
+    /// Installs an analyzer-generated hook-chain package and wires it into this pipeline. Called by
+    /// the generated interceptor that replaces an <c>InvokeKernel(lambda)</c> call site, so the lowered
+    /// chain runs as verified IR instead of throwing. Blocks on install at setup time.
+    /// </summary>
+    public HookPipeline<TEvent> UseGeneratedChain(PluginPackage package)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        if (_installer is null)
+        {
+            throw new SandboxValidationException([
+                new SandboxDiagnostic(
+                    "SGP063",
+                    "this hook pipeline has no installer; create it from a PluginServer to use generated chains.")
+            ]);
+        }
+
+        return UseKernel(_installer(package));
     }
 
     public HookPipeline<TEvent> Where(Func<TEvent, HookContext, bool> filter)
@@ -101,6 +127,20 @@ public sealed class HookPipeline<TEvent>
         }
 
         return this;
+    }
+
+    /// <summary>Element-only filter — the same as the (element, context) overload with the context
+    /// discarded. Both arities are always available so a stage need not take the context it doesn't use.</summary>
+    public HookPipeline<TEvent> Where(Func<TEvent, bool> filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        return Where((e, _) => filter(e));
+    }
+
+    public HookPipeline<TEvent> Where(Func<TEvent, ValueTask<bool>> filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        return Where((e, _) => filter(e));
     }
 
     public HookPipeline<TEvent> InvokeHostHandler(Func<TEvent, HookContext, ValueTask> handler)
@@ -120,13 +160,61 @@ public sealed class HookPipeline<TEvent>
             return ValueTask.CompletedTask;
         });
 
-    [Obsolete("Delegate handlers are host-owned code, not plugin kernels. Use UseKernel for plugins or InvokeHostHandler for explicit host handlers.", error: true)]
-    public HookPipeline<TEvent> InvokeKernel(Func<TEvent, HookContext, ValueTask> handler)
+    public HookPipeline<TEvent> InvokeHostHandler(Func<TEvent, ValueTask> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return InvokeHostHandler((e, _) => handler(e));
+    }
+
+    public HookPipeline<TEvent> InvokeHostHandler(Action<TEvent> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return InvokeHostHandler((e, _) => handler(e));
+    }
+
+    /// <summary>Native host terminal — runs in-process (NOT sandboxed). Use sparingly.</summary>
+    public HookPipeline<TEvent> InvokeLocal(Func<TEvent, HookContext, ValueTask> handler)
         => InvokeHostHandler(handler);
 
-    [Obsolete("Delegate handlers are host-owned code, not plugin kernels. Use UseKernel for plugins or InvokeHostHandler for explicit host handlers.", error: true)]
-    public HookPipeline<TEvent> InvokeKernel(Action<TEvent, HookContext> handler)
+    public HookPipeline<TEvent> InvokeLocal(Action<TEvent, HookContext> handler)
         => InvokeHostHandler(handler);
+
+    public HookPipeline<TEvent> InvokeLocal(Func<TEvent, ValueTask> handler)
+        => InvokeHostHandler(handler);
+
+    public HookPipeline<TEvent> InvokeLocal(Action<TEvent> handler)
+        => InvokeHostHandler(handler);
+
+    /// <summary>Projects the flowing element to a new type for downstream Where/terminal stages.</summary>
+    public HookStage<TEvent, TNext> Select<TNext>(Func<TEvent, HookContext, TNext> projection)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        return new HookStage<TEvent, TNext>(
+            this,
+            (e, ctx) => ValueTask.FromResult((true, projection(e, ctx))));
+    }
+
+    public HookStage<TEvent, TNext> Select<TNext>(Func<TEvent, TNext> projection)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        return Select((e, _) => projection(e));
+    }
+
+    /// <summary>
+    /// The terminal the analyzer lowers to verified IR. It never runs as host code: un-lowered it
+    /// throws, so plugin logic cannot accidentally execute unsandboxed.
+    /// </summary>
+    public HookPipeline<TEvent> InvokeKernel(Func<TEvent, HookContext, ValueTask> handler)
+        => throw HookLowering.NotLowered();
+
+    public HookPipeline<TEvent> InvokeKernel(Action<TEvent, HookContext> handler)
+        => throw HookLowering.NotLowered();
+
+    public HookPipeline<TEvent> InvokeKernel(Func<TEvent, ValueTask> handler)
+        => throw HookLowering.NotLowered();
+
+    public HookPipeline<TEvent> InvokeKernel(Action<TEvent> handler)
+        => throw HookLowering.NotLowered();
 
     public HookPipeline<TEvent> UseKernel(InstalledKernel kernel)
     {
