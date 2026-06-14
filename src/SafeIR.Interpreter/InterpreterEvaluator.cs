@@ -65,6 +65,19 @@ internal sealed class InterpreterEvaluator : I32CallEvaluator
         }
     }
 
+    public bool TryCreateRepeatedAddCallPlan(
+        CallExpression call,
+        string targetName,
+        out I32RepeatedAddCallPlan plan)
+        => I32RepeatedAddCallAnalyzer.TryCreate(_functions, call, targetName, out plan);
+
+    public bool TryCreateRemainderAccumulatorCallPlan(
+        CallExpression call,
+        string targetName,
+        string loopLocal,
+        out I32RemainderAccumulatorCallPlan plan)
+        => I32RemainderAccumulatorCallAnalyzer.TryCreate(_functions, call, targetName, loopLocal, out plan);
+
     public bool TryCreateInt32CallPlan(
         CallExpression call,
         InterpreterFrame frame,

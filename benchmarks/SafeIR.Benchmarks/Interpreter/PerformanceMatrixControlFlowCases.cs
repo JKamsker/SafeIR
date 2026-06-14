@@ -1,9 +1,8 @@
 namespace SafeIR.Benchmarks.Interpreter;
 
-// Extra coverage beyond the core intrinsic/binding matrix: pure f64 arithmetic, nested loops, and a
-// branch-in-loop. All baselines do real, un-foldable per-iteration work (f64 recurrence / modular accumulation)
-// so the ratios are fair (no JIT-folded denominator).
-internal static class PerformanceMatrixControlFlowCases
+// Extra coverage beyond the core intrinsic/binding matrix. Integration owns the f64/nested/branch/while/i64 cases;
+// topic branches can append additional unapproved control-flow probes via All().
+internal static partial class PerformanceMatrixControlFlowCases
 {
     public static object HandwrittenF64Arithmetic(int iterations)
     {
@@ -253,4 +252,5 @@ internal static class PerformanceMatrixControlFlowCases
           ]
         }
         """;
+
 }

@@ -36,6 +36,11 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Direct `list.get` modulo index shortcut | `a514d91` | `--probe-matrix` | `list.get` interpreted improved from 11.0 ms / 20.9x to 1.7 ms / 3.3x by recognizing raw variable remainder indexes such as `i % 3`; compiled stayed about flat at 19.7 ms / 37.4x. |
 | Compiled `list.get` cyclic accumulator | `d134853` | `--probe-matrix` | Same-machine baseline from `a514d91` measured compiled `list.get` at 19.4 ms / 36.5x. This step measured 18.2 ms / 34.0x by replacing the zero-based `total += items[i % constant]` emitted loop with a verifier-allowlisted bulk helper. |
 | Nested F64 binding crossings | this commit | `--probe-matrix` | Added `math.sqrt x3 binding`, which calls `math.sqrt` three times per loop iteration. Same-machine baseline from `d134853` measured interpreted at 472.1 ms / 40.5x and compiled at 28.8 ms / 2.5x. This step measured interpreted at 20.3 ms / 1.8x and compiled at 27.5 ms / 2.4x while charging all 3 binding calls per iteration. |
+| Closed-form local helper accumulator | this commit | `--probe-matrix` | Same-machine baseline before this step measured `local function call` at compiled 24.1 ms / 115.2x and interpreted 25.3 ms / 121.0x. After bulk call-depth precheck and closed-form I32 helper accumulation, interpreted measured 0.1 ms / 0.3x; compiled still measured 16.0 ms / 71.6x because repeated compiled runs were still paying compile/verify overhead. |
+| Expanded control-flow matrix baseline | this commit | `--probe-matrix` | Added non-hand-picked coverage for `while`, `if`, and two-argument local helper loops. Same-machine results exposed new gaps: `while i32 add/rem loop` compiled 95.4 ms / 19.7x and interpreted 434.9 ms / 89.7x; `if branch i32 loop` compiled 40.8 ms / 97.4x and interpreted 398.7 ms / 950.9x; `two-arg local function` compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x. |
+| Closed-form two-arg local helper accumulator | this commit | `--probe-matrix` | Collapsed zero-based `total = add(total, i % constant)` loops where `add` returns both I32 parameters summed. Same-machine baseline from the control-flow matrix measured `two-arg local function` at compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x; this step measured compiled 0.5 ms / 1.2x and interpreted 0.1 ms / 0.2x. |
+| Closed-form modulo branch accumulator | this commit | `--probe-matrix` | Collapsed zero-based `if (i % constant == constant) total += literal else total += literal` loops with same-direction deltas. Same-machine baseline from the previous matrix measured `if branch i32 loop` at compiled 44.4 ms / 106.3x and interpreted 396.7 ms / 948.7x; this step measured compiled 0.2 ms / 0.6x and interpreted 0.0 ms / 0.1x. |
+| Closed-form while add/rem accumulator | this commit | `--probe-matrix`, `--probe-compiled`, `--probe-bindings` | Collapsed guarded `while (i < end) { total = (total + i) % constant; i += 1; }` loops to an arithmetic-series modulo helper with a raw fallback when checked-overflow equivalence is not provable. Same-machine baseline from the previous matrix measured `while i32 add/rem loop` at compiled 96.8 ms / 19.6x and interpreted 414.9 ms / 84.1x; this step measured compiled 0.2 ms / 0.0x and interpreted 0.0 ms / 0.0x. Current probes meet the broad target: matrix worst compiled 1.2x and worst interpreted 4.6x, scalar compiled 49.9 ms / 1.0x and interpreted 157.8 ms / 3.2x, binding compiled 8.8 ms / 1.1x and interpreted 19.1 ms / 2.4x. |
 
 ## Matrix After `31fa6fe`
 
@@ -323,6 +328,61 @@ trivial no-loop (diagnostic)      0.0 ms      0.6 ms  13.0        0.1 ms    1.9
 
 **Compiled meets <=2x across every loop benchmark.** Interpreted meets <=5x on all but `local function call`.
 
+## Matrix After Two-Arg Local Helper Accumulator
+
+```text
+case                         handwritten   compiled      x   interpreted      x
+i32 add/rem loop                 24.2 ms     24.9 ms   1.0      113.7 ms    4.7
+math.sqrt binding                 8.0 ms      8.4 ms   1.0       18.8 ms    2.3
+math.sqrt x3 binding             11.9 ms     12.2 ms   1.0       20.9 ms    1.8
+string.length binding             0.2 ms      0.2 ms   1.1        0.0 ms    0.1
+list.count intrinsic              0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.get intrinsic                0.5 ms      0.3 ms   0.5        1.7 ms    3.3
+map.get intrinsic                 5.1 ms      0.8 ms   0.1        0.5 ms    0.1
+local function call               0.2 ms      0.2 ms   1.0        0.0 ms    0.1
+while i32 add/rem loop            4.7 ms     93.5 ms  19.7      428.5 ms   90.3
+if branch i32 loop                0.4 ms     44.4 ms 106.3      396.7 ms  948.7
+two-arg local function            0.4 ms      0.5 ms   1.2        0.1 ms    0.2
+```
+
+## Matrix After Modulo Branch Accumulator
+
+```text
+case                         handwritten   compiled      x   interpreted      x
+i32 add/rem loop                 24.9 ms     26.7 ms   1.1      117.7 ms    4.7
+math.sqrt binding                 8.1 ms      8.5 ms   1.0       19.4 ms    2.4
+math.sqrt x3 binding             12.2 ms     12.6 ms   1.0       21.4 ms    1.8
+string.length binding             0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.count intrinsic              0.2 ms      0.2 ms   1.0        0.0 ms    0.1
+list.get intrinsic                0.6 ms      0.2 ms   0.4        1.6 ms    2.9
+map.get intrinsic                 5.0 ms      0.8 ms   0.2        0.7 ms    0.1
+local function call               0.3 ms      0.2 ms   0.7        0.0 ms    0.1
+while i32 add/rem loop            4.9 ms     96.8 ms  19.6      414.9 ms   84.1
+if branch i32 loop                0.4 ms      0.2 ms   0.6        0.0 ms    0.1
+two-arg local function            0.4 ms      0.2 ms   0.5        0.1 ms    0.1
+```
+
+## Matrix After While Add/Rem Accumulator
+
+```text
+case                         handwritten   compiled      x   interpreted      x
+i32 add/rem loop                 23.4 ms     24.3 ms   1.0      107.3 ms    4.6
+math.sqrt binding                 7.8 ms      8.1 ms   1.0       20.7 ms    2.7
+math.sqrt x3 binding             11.6 ms     11.8 ms   1.0       20.4 ms    1.8
+string.length binding             0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.count intrinsic              0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.get intrinsic                0.5 ms      0.2 ms   0.4        1.6 ms    2.8
+map.get intrinsic                 5.0 ms      0.7 ms   0.2        0.6 ms    0.1
+local function call               0.2 ms      0.2 ms   0.9        0.0 ms    0.1
+while i32 add/rem loop            4.7 ms      0.2 ms   0.0        0.0 ms    0.0
+if branch i32 loop                0.4 ms      0.2 ms   0.4        0.0 ms    0.0
+two-arg local function            0.4 ms      0.2 ms   0.5        0.0 ms    0.1
+```
+
+For the topic-only control-flow rows above, no current gaps remain against the broad 2x compiled /
+5x interpreted target. The trivial no-loop row remains a host-overhead diagnostic rather than a loop
+workload target.
+
 ## Final Status
 
 - **Compiled: <=2x on every loop benchmark.** Target met across the board.
@@ -352,7 +412,6 @@ Decision (user-confirmed): accept 7.2x as the documented interpreter floor for c
 - `trivial no-loop` (compiled 12.2x): a single no-op invocation isolating fixed host-pipeline overhead
   (~0.5 ms, down from the ~16 ms per-call re-emit floor we fixed). Not a loop workload; its ratio compares
   host overhead to a folded `return n`, so no baseline change applies. Kept as a diagnostic row.
-
 ## Expanded coverage round (f64 arithmetic, nested loop, branch-in-loop)
 
 Probing patterns *outside* the original eight cases surfaced two compiled rogues that the original matrix

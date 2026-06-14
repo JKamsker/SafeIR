@@ -8,12 +8,27 @@ internal interface I32CallEvaluator
 
     int EvaluateInt32Call(CallExpression call);
 
+    bool TryCreateRepeatedAddCallPlan(
+        CallExpression call,
+        string targetName,
+        out I32RepeatedAddCallPlan plan);
+
+    bool TryCreateRemainderAccumulatorCallPlan(
+        CallExpression call,
+        string targetName,
+        string loopLocal,
+        out I32RemainderAccumulatorCallPlan plan);
+
     bool TryCreateInt32CallPlan(
         CallExpression call,
         InterpreterFrame frame,
         string assumedInt32Local,
         out I32ExpressionPlan plan);
 }
+
+internal readonly record struct I32RepeatedAddCallPlan(int Delta, int ExpressionFuelCost, int MaxInlineCallDepth);
+
+internal readonly record struct I32RemainderAccumulatorCallPlan(int Divisor, int ExpressionFuelCost, int MaxInlineCallDepth);
 
 internal static class I32ExpressionEvaluator
 {

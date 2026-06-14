@@ -87,6 +87,130 @@ public static class SandboxInt32Math
         return -value;
     }
 
+    internal static int AddRepeated(int value, int delta, long count)
+    {
+        if (count < 0)
+        {
+            throw InvalidInput("repeat count must be non-negative");
+        }
+
+        try
+        {
+            var scaledDelta = checked((long)delta * count);
+            var result = checked(value + scaledDelta);
+            if (result < int.MinValue || result > int.MaxValue)
+            {
+                throw InvalidInput("integer overflow");
+            }
+
+            return (int)result;
+        }
+        catch (OverflowException)
+        {
+            throw InvalidInput("integer overflow");
+        }
+    }
+
+    internal static int AddRemainderCycleFromZero(int value, int iterations, int divisor)
+    {
+        if (iterations < 0)
+        {
+            throw InvalidInput("repeat count must be non-negative");
+        }
+
+        if (divisor <= 0)
+        {
+            throw InvalidInput("integer division by zero");
+        }
+
+        var cycles = iterations / divisor;
+        var remainder = iterations % divisor;
+        try
+        {
+            var cycleSum = (long)divisor * (divisor - 1) / 2;
+            var remainderSum = (long)remainder * (remainder - 1) / 2;
+            var result = checked(value + checked(cycleSum * cycles) + remainderSum);
+            if (result < int.MinValue || result > int.MaxValue)
+            {
+                throw InvalidInput("integer overflow");
+            }
+
+            return (int)result;
+        }
+        catch (OverflowException)
+        {
+            throw InvalidInput("integer overflow");
+        }
+    }
+
+    internal static int AddModuloBranchDeltasFromZero(
+        int value,
+        int iterations,
+        int divisor,
+        int matchRemainder,
+        int thenDelta,
+        int elseDelta)
+    {
+        if (iterations < 0)
+        {
+            throw InvalidInput("repeat count must be non-negative");
+        }
+
+        if (divisor <= 0)
+        {
+            throw InvalidInput("integer division by zero");
+        }
+
+        var thenCount = CountRemainderMatches(iterations, divisor, matchRemainder);
+        var withThen = AddRepeated(value, thenDelta, thenCount);
+        return AddRepeated(withThen, elseDelta, iterations - thenCount);
+    }
+
+    internal static bool CanAddModuloIndexAccumulator(int current, int start, int end, int divisor)
+        => divisor > 0 &&
+           start >= 0 &&
+           start < end &&
+           current >= 0 &&
+           current < divisor &&
+           (long)divisor + end - 2 <= int.MaxValue;
+
+    internal static int AddModuloIndexAccumulator(int current, int start, int end, int divisor)
+    {
+        if (!CanAddModuloIndexAccumulator(current, start, end, divisor))
+        {
+            throw InvalidInput("unsupported modulo accumulator bounds");
+        }
+
+        var sum = ArithmeticSeriesModulo(start, end, divisor);
+        return (int)(((long)current + sum) % divisor);
+    }
+
+    private static long ArithmeticSeriesModulo(int start, int end, int divisor)
+    {
+        var terms = (long)start + end - 1;
+        var count = (long)end - start;
+        if ((terms & 1) == 0)
+        {
+            terms /= 2;
+        }
+        else
+        {
+            count /= 2;
+        }
+
+        return (terms % divisor) * (count % divisor) % divisor;
+    }
+
+    private static int CountRemainderMatches(int iterations, int divisor, int matchRemainder)
+    {
+        if (iterations == 0 || matchRemainder < 0 || matchRemainder >= divisor || iterations <= matchRemainder)
+        {
+            return 0;
+        }
+
+        return 1 + (iterations - 1 - matchRemainder) / divisor;
+    }
+
     private static SandboxRuntimeException InvalidInput(string message)
         => new(new SandboxError(SandboxErrorCode.InvalidInput, message));
 }

@@ -18,6 +18,74 @@ public static partial class CompiledRuntime
         => context.CanBulkChargeLoopIterations(count, fuelPerIteration);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void RequireAdditionalCallDepth(SandboxContext context, int additionalDepth)
+        => context.RequireAdditionalCallDepth(additionalDepth);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int AddRepeatedI32LoopRaw(
+        SandboxContext context,
+        int current,
+        int iterations,
+        int delta,
+        int loopFuelPerIteration)
+    {
+        context.ChargeLoopIterations(iterations, loopFuelPerIteration);
+        return SandboxInt32Math.AddRepeated(current, delta, iterations);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int AddRemainderCycleI32LoopRaw(
+        SandboxContext context,
+        int current,
+        int iterations,
+        int divisor,
+        int loopFuelPerIteration)
+    {
+        context.ChargeLoopIterations(iterations, loopFuelPerIteration);
+        return SandboxInt32Math.AddRemainderCycleFromZero(current, iterations, divisor);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int AddModuloBranchDeltasI32LoopRaw(
+        SandboxContext context,
+        int current,
+        int iterations,
+        int divisor,
+        int matchRemainder,
+        int thenDelta,
+        int elseDelta,
+        int loopFuelPerIteration)
+    {
+        context.ChargeLoopIterations(iterations, loopFuelPerIteration);
+        return SandboxInt32Math.AddModuloBranchDeltasFromZero(
+            current,
+            iterations,
+            divisor,
+            matchRemainder,
+            thenDelta,
+            elseDelta);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool CanUseModuloIndexAccumulatorRaw(int current, int start, int end, int divisor)
+        => SandboxInt32Math.CanAddModuloIndexAccumulator(current, start, end, divisor);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int AddModuloIndexAccumulatorI32LoopRaw(
+        SandboxContext context,
+        int current,
+        int start,
+        int end,
+        int divisor,
+        int loopFuelPerIteration,
+        int finalConditionFuel)
+    {
+        context.ChargeLoopIterations(end - start, loopFuelPerIteration);
+        context.ChargeFuel(finalConditionFuel);
+        return SandboxInt32Math.AddModuloIndexAccumulator(current, start, end, divisor);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ChargeFuel64(SandboxContext context, long amount) => context.ChargeFuel(amount);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
