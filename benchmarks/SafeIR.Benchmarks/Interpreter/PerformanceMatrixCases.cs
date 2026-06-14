@@ -10,7 +10,8 @@ internal sealed record PerformanceMatrixCase(
 internal static class PerformanceMatrixCases
 {
     public static IReadOnlyList<PerformanceMatrixCase> All()
-        => [
+    {
+        var cases = new List<PerformanceMatrixCase> {
             new("i32 add/rem loop", 10_000_000, 250_000, HandwrittenI32Modulo, I32ModuloJson()),
             new("math.sqrt binding", 2_000_000, 100_000, HandwrittenSqrt, SqrtJson()),
             new("math.sqrt x3 binding", 1_000_000, 50_000, PerformanceMatrixMathCases.HandwrittenSqrt3, PerformanceMatrixMathCases.Sqrt3Json()),
@@ -19,7 +20,10 @@ internal static class PerformanceMatrixCases
             new("list.get intrinsic", 1_000_000, 50_000, HandwrittenListGet, ListGetJson()),
             new("map.get intrinsic", 500_000, 25_000, HandwrittenMapGet, MapGetJson()),
             new("local function call", 1_000_000, 50_000, HandwrittenLocalCall, LocalCallJson())
-        ];
+        };
+        cases.AddRange(PerformanceMatrixControlFlowCases.All());
+        return cases;
+    }
 
     private static object HandwrittenI32Modulo(int iterations)
     {

@@ -39,6 +39,7 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Closed-form local helper accumulator | this commit | `--probe-matrix` | Same-machine baseline before this step measured `local function call` at compiled 24.1 ms / 115.2x and interpreted 25.3 ms / 121.0x. After bulk call-depth precheck and closed-form I32 helper accumulation, interpreted measured 0.1 ms / 0.3x; compiled still measured 16.0 ms / 71.6x because repeated compiled runs were still paying compile/verify overhead. |
 | Default reflection compiler artifact reuse | this commit | `--probe-matrix` | Added bounded in-memory artifact reuse for the default reflection compiler. The matrix moved repeated compiled execution overhead out of hot measurements: `i32 add/rem` compiled 25.1 ms / 1.1x, `math.sqrt` 8.3 ms / 1.0x, `math.sqrt x3` 12.3 ms / 1.0x, and `local function call` 0.2 ms / 0.9x. Remaining compiled misses were tiny `string.length` at 1.2 ms / 5.3x and `list.count` at 1.3 ms / 5.8x. |
 | Closed-form string/list count accumulators | this commit | `--probe-matrix`, `--probe-compiled`, `--probe-bindings` | Collapsed bulk-chargeable `total += string.length(text)` and `total += list.count(items)` loops to one checked accumulator update. Current matrix worst compiled ratio is 1.2x and worst interpreted ratio is 4.6x; scalar probe measured compiled 51.3 ms / 1.0x and interpreted 218.1 ms / 4.4x; binding probe measured compiled 8.8 ms / 1.1x and interpreted 19.4 ms / 2.4x. |
+| Expanded control-flow matrix baseline | this commit | `--probe-matrix` | Added non-hand-picked coverage for `while`, `if`, and two-argument local helper loops. Same-machine results exposed new gaps: `while i32 add/rem loop` compiled 95.4 ms / 19.7x and interpreted 434.9 ms / 89.7x; `if branch i32 loop` compiled 40.8 ms / 97.4x and interpreted 398.7 ms / 950.9x; `two-arg local function` compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x. |
 
 ## Matrix After `31fa6fe`
 
@@ -231,6 +232,5 @@ local function call               0.2 ms     20.1 ms 100.0       23.0 ms  114.5
 
 ## Current Gaps
 
-The current local stopwatch probes meet the 5x interpreted and 2x compiled targets
-for their covered rows. The broader goal still needs continued benchmark expansion
-and BenchmarkDotNet coverage before claiming this across every supported IR shape.
+The broad performance target is not met yet. Expanded control-flow coverage exposed
+large gaps in `while`, `if`, and two-argument local helper loops.
