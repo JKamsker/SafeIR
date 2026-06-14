@@ -117,7 +117,7 @@ public int NextRandomInt32(int minInclusive, int maxExclusive)
 public int Patch { get => _patch; init => _patch = RequireNonNegative(value, nameof(Patch)); }
 public interface IAuditSink
 public interface IBindingCatalog
-public IReadOnlyDictionary<SandboxValue, SandboxValue> Values { get => _values; init => _values = ModelCopy.ValueDictionary(value); }
+public IReadOnlyDictionary<SandboxValue, SandboxValue> Values { get => _values; init => _values = Snapshot(value); }
 public IReadOnlyDictionary<string, FunctionAnalysis> FunctionAnalysis { get; }
 public IReadOnlyDictionary<string, IReadOnlySet<string>> BindingReferences { get; }
 public IReadOnlyDictionary<string, SandboxFunction> FunctionLookup
@@ -230,10 +230,10 @@ public sealed class BindingRegistryBuilder
 public sealed class ExecutionPlan
 public sealed class ExecutionPlanSeal : IEquatable<ExecutionPlanSeal>
 public sealed class InMemoryAuditSink : IAuditSink
-public sealed class ResourceMeter
 public sealed class SandboxPolicyBuilder
 public sealed class SandboxRuntimeException : Exception
 public sealed class SandboxValidationException( IReadOnlyList<SandboxDiagnostic> diagnostics)
+public sealed partial class ResourceMeter
 public sealed partial class SandboxContext
 public sealed record AssignmentStatement(string Name, Expression Value, SourceSpan Span) : Statement(Span)
 public sealed record BinaryExpression(Expression Left, string Operator, Expression Right, SourceSpan Span) : Expression(Span)
@@ -324,12 +324,12 @@ public static double Multiply(double left, double right) => Finite(left * right)
 public static double Negate(double value) => Finite(-value)
 public static double Remainder(double left, double right) => Finite(left % right)
 public static double Subtract(double left, double right) => Finite(left - right)
-public static int Add(int left, int right) => Checked(() => checked(left + right))
+public static int Add(int left, int right)
 public static int Divide(int left, int right)
-public static int Multiply(int left, int right) => Checked(() => checked(left * right))
-public static int Negate(int value) => Checked(() => checked(-value))
+public static int Multiply(int left, int right)
+public static int Negate(int value)
 public static int Remainder(int left, int right)
-public static int Subtract(int left, int right) => Checked(() => checked(left - right))
+public static int Subtract(int left, int right)
 public static IReadOnlyDictionary<string, IReadOnlySet<string>> CollectByFunction( SandboxModule module, IBindingCatalog bindings)
 public static IReadOnlyDictionary<string, string> Create( ExecutionPlan plan, ResourceMeter budget, ExecutionMode mode, string cacheStatus, string? runtimeForm = null, string? cacheKey = null, string? artifactHash = null, string? materializationStatus = null, bool executionDispatched = true)
 public static IReadOnlyDictionary<string, string> Create( string resourceKind, DateTimeOffset startedAt, bool deterministic = false, long? bytesRead = null, long? bytesWritten = null)
@@ -421,6 +421,7 @@ public void ChargeHostCall(string bindingId, int? maxCallsPerRun = null)
 public void ChargeLogEvent(string message)
 public void ChargeLogEvent(string message) => Budget.ChargeLogEvent(message)
 public void ChargeLoopIteration(long fuelAmount)
+public void ChargeLoopIterations(long iterations, long fuelPerIteration)
 public void ChargeNetworkRead(long bytes)
 public void ChargeNetworkWrite(long bytes)
 public void ChargeString(string value)
@@ -429,6 +430,7 @@ public void ChargeValue(SandboxValue value, CancellationToken cancellationToken)
 public void ChargeValue(SandboxValue value) => Budget.ChargeValue(value, CancellationToken)
 public void ChargeValue(SandboxValue value) => ChargeValue(value, CancellationToken.None)
 public void CheckDeadline()
+public void Checkpoint()
 public void EnsureRequiredBindingFailureAudit( BindingDescriptor descriptor, long checkpoint, SandboxErrorCode errorCode)
 public void EnsureRequiredBindingSuccessAudit(BindingDescriptor descriptor, long checkpoint)
 public void EnterCall()

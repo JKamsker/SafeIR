@@ -15,8 +15,11 @@ public static BindingRegistryBuilder AddFileBindings(this BindingRegistryBuilder
 public static BindingRegistryBuilder AddLogBindings(this BindingRegistryBuilder builder)
 public static BindingRegistryBuilder AddRandomBindings(this BindingRegistryBuilder builder)
 public static BindingRegistryBuilder AddTimeBindings(this BindingRegistryBuilder builder)
-public static bool AsBool(SandboxValue value) => ((BoolValue)value).Value
-public static class CompiledRuntime
+public static bool CanBulkChargeBindingCalls(SandboxContext context, string id, int count)
+public static bool CanBulkChargeBindingCallsScaled( SandboxContext context, string id, int iterations, int callsPerIteration)
+public static bool CanBulkChargeFuel(SandboxContext context, long fuelPerUnit, int count)
+public static bool CanBulkChargeLoopIterations(SandboxContext context, int count, int fuelPerIteration)
+public static bool CanBulkChargeSandboxValue(SandboxContext context, SandboxValue value, int count)
 public static class DefaultSandboxBindings
 public static class MathBindings
 public static class SafeFileBindings
@@ -24,20 +27,36 @@ public static class SafeRandomBindings
 public static class SafeTimeBindings
 public static class StringBindings
 public static double AsF64(SandboxValue value) => ((F64Value)value).Value
-public static int AsI32(SandboxValue value) => ((I32Value)value).Value
+public static double CeilF64Raw(double value) => Math.Ceiling(value)
+public static double FloorF64Raw(double value) => Math.Floor(value)
+public static double RoundF64Raw(double value) => Math.Round(value, MidpointRounding.ToEven)
+public static double SqrtF64Raw(double value)
+public static int AccumulateLinearI32(SandboxContext context, int total, int inv, int iterations, int fuelPerIteration)
+public static int ListCountRaw(SandboxValue value)
+public static int ListGetI32Raw(SandboxValue value, int index)
+public static int ListI32ReaderAddRemainderCycleFromZeroRaw( SandboxContext context, object reader, int current, int iterations, int divisor, int loopFuelPerIteration, long readFuel)
+public static int ListI32ReaderGetRaw(object reader, int index)
+public static int ListI32ReaderGetRemainderRaw(object reader, int value, int divisor)
+public static int MapCountRaw(SandboxValue value)
+public static int MapGetI32Raw(SandboxValue value, SandboxValue key)
+public static int StringLengthRaw(SandboxValue value) => ((StringValue)value).Value.Length
 public static IReadOnlyList<BindingDescriptor> All { get; } = [
 public static long AsI64(SandboxValue value) => ((I64Value)value).Value
+public static long ListReadFuelRaw(int count) => SandboxCollectionFuel.Read(count)
+public static object ListI32ReaderRaw(SandboxValue value)
 public static partial class AuditTextSanitizer
+public static partial class CompiledRuntime
 public static partial class SafeFileSystem
 public static partial class SafeLogBindings
 public static SandboxType TypeList(SandboxType itemType) => SandboxType.List(itemType)
 public static SandboxType TypeMap(SandboxType keyType, SandboxType valueType) => SandboxType.Map(keyType, valueType)
+public static SandboxType TypeRecord(SandboxType[] fieldTypes) => SandboxType.Record(fieldTypes)
 public static SandboxType TypeScalar(string name) => SandboxType.Scalar(name)
+public static SandboxType[] CreateTypeArray(int count)
 public static SandboxValue AbsI32(SandboxValue value)
 public static SandboxValue Add(SandboxValue left, SandboxValue right) => SandboxNumericOperations.Add(left, right)
 public static SandboxValue AddI32(SandboxValue left, SandboxValue right) => I32(SandboxInt32Math.Add(AsI32(left), AsI32(right)))
 public static SandboxValue And(SandboxValue left, SandboxValue right) => Bool(AsBool(left) && AsBool(right))
-public static SandboxValue Bool(bool value) => SandboxValue.FromBool(value)
 public static SandboxValue CallBinding(SandboxContext context, string id, SandboxValue[] args)
 public static SandboxValue CeilF64(SandboxValue value) => F64(Math.Ceiling(AsF64(value)))
 public static SandboxValue ClampI32(SandboxValue value, SandboxValue min, SandboxValue max)
@@ -52,7 +71,6 @@ public static SandboxValue Gt(SandboxValue left, SandboxValue right) => SandboxN
 public static SandboxValue Gte(SandboxValue left, SandboxValue right) => SandboxNumericOperations.GreaterThanOrEqual(left, right)
 public static SandboxValue GteI32(SandboxValue left, SandboxValue right) => Bool(AsI32(left) >= AsI32(right))
 public static SandboxValue GtI32(SandboxValue left, SandboxValue right) => Bool(AsI32(left) > AsI32(right))
-public static SandboxValue I32(int value) => SandboxValue.FromInt32(value)
 public static SandboxValue I64(long value) => SandboxValue.FromInt64(value)
 public static SandboxValue ListAdd(SandboxContext context, SandboxValue list, SandboxValue item)
 public static SandboxValue ListCount(SandboxContext context, SandboxValue list)
@@ -85,13 +103,15 @@ public static SandboxValue OpaqueIdLiteralValue(string typeName, string value)
 public static SandboxValue Or(SandboxValue left, SandboxValue right) => Bool(AsBool(left) || AsBool(right))
 public static SandboxValue PathConst(SandboxContext context, string value)
 public static SandboxValue PathLiteralValue(string value) => SandboxValue.FromPath(value)
+public static SandboxValue RecordGet(SandboxContext context, SandboxValue record, SandboxValue index)
+public static SandboxValue RecordNew(SandboxContext context, SandboxValue[] fields)
 public static SandboxValue Rem(SandboxValue left, SandboxValue right) => SandboxNumericOperations.Remainder(left, right)
 public static SandboxValue RemI32(SandboxValue left, SandboxValue right) => I32(SandboxInt32Math.Remainder(AsI32(left), AsI32(right)))
 public static SandboxValue RequireValueType(SandboxValue value, SandboxType expectedType)
 public static SandboxValue RoundF64(SandboxValue value) => F64(Math.Round(AsF64(value), MidpointRounding.ToEven))
 public static SandboxValue SqrtF64(SandboxValue value) => F64(Math.Sqrt(AsF64(value)))
 public static SandboxValue StringConst(SandboxContext context, string value)
-public static SandboxValue StringLength(SandboxValue value) => I32(((StringValue)value).Value.Length)
+public static SandboxValue StringLength(SandboxValue value) => I32(StringLengthRaw(value))
 public static SandboxValue StringLiteralValue(string value) => SandboxValue.FromString(value)
 public static SandboxValue Sub(SandboxValue left, SandboxValue right) => SandboxNumericOperations.Subtract(left, right)
 public static SandboxValue SubI32(SandboxValue left, SandboxValue right) => I32(SandboxInt32Math.Subtract(AsI32(left), AsI32(right)))
@@ -102,8 +122,12 @@ public static SandboxValue[] CreateLiteralValueArray(int count)
 public static SandboxValue[] CreateValueArray(SandboxContext context, int count)
 public static string RedactPathSegments(string path)
 public static string SanitizeAndRedact(string message)
-public static void ChargeFuel(SandboxContext context, int amount) => context.ChargeFuel(amount)
-public static void ChargeLoopIteration(SandboxContext context, int fuelAmount)
+public static void ChargeBindingCalls(SandboxContext context, string id, int count)
+public static void ChargeBindingCallsScaled( SandboxContext context, string id, int iterations, int callsPerIteration)
+public static void ChargeBulkFuel(SandboxContext context, long fuelPerUnit, int count)
+public static void ChargeFuel64(SandboxContext context, long amount) => context.ChargeFuel(amount)
+public static void ChargeSandboxValue(SandboxContext context, SandboxValue value) => context.ChargeValue(value)
+public static void ChargeSandboxValues(SandboxContext context, SandboxValue value, int count)
 public static void EnterCall(SandboxContext context) => context.EnterCall()
 public static void ExitCall(SandboxContext context) => context.ExitCall()
 public static void ValidateEntrypointInput(SandboxValue input, int parameterCount)
