@@ -10,7 +10,8 @@ internal sealed record PerformanceMatrixCase(
 internal static class PerformanceMatrixCases
 {
     public static IReadOnlyList<PerformanceMatrixCase> All()
-        => [
+    {
+        var cases = new List<PerformanceMatrixCase> {
             new("trivial no-loop", 1_000_000, 50_000, static n => n, TrivialJson()),
             new("i32 add/rem loop", 10_000_000, 250_000, HandwrittenI32Modulo, I32ModuloJson()),
             new("math.sqrt binding", 2_000_000, 100_000, HandwrittenSqrt, SqrtJson()),
@@ -26,6 +27,9 @@ internal static class PerformanceMatrixCases
             new("while loop", 1_000_000, 50_000, PerformanceMatrixControlFlowCases.HandwrittenWhileLoop, PerformanceMatrixControlFlowCases.WhileLoopJson()),
             new("i64 arithmetic loop", 1_000_000, 50_000, PerformanceMatrixControlFlowCases.HandwrittenI64Arithmetic, PerformanceMatrixControlFlowCases.I64ArithmeticJson())
         ];
+        cases.AddRange(PerformanceMatrixControlFlowCases.All());
+        return cases;
+    }
 
     private static string TrivialJson()
         => """
