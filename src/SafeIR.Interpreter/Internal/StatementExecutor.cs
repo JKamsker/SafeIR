@@ -253,6 +253,11 @@ internal sealed class StatementExecutor
             return default;
         }
 
+        if (I32RepeatedAddCallForLoopRunner.TryRun(statement, start, end, frame, _context, _options, _calls))
+        {
+            return default;
+        }
+
         if (I32ForLoopRunner.TryRun(statement, start, end, frame, _context, _options, _calls))
         {
             return default;
