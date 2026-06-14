@@ -32,6 +32,18 @@ internal static class StringLengthForLoopRunner
         context.ChargeBindingCalls(plan.Binding, iterations);
 
         var length = frame.ReadStringLengthSlot(plan.SourceSlot);
+        if (plan.AddToTarget)
+        {
+            var value = SandboxInt32Math.AddRepeated(
+                frame.ReadRawInt32Slot(plan.TargetSlot),
+                length,
+                iterations);
+            frame.WriteRawInt32Slot(plan.TargetSlot, value);
+            frame.WriteRawInt32Slot(frame.GetSlot(statement.LocalName), end - 1);
+            context.Checkpoint();
+            return true;
+        }
+
         var loopSlot = frame.GetSlot(statement.LocalName);
         var checkpoint = 4096;
         for (var i = start; i < end; i++)

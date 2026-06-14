@@ -75,7 +75,6 @@ internal static class StringLengthLoopFastPathEmitter
         il.Emit(OpCodes.Stloc, end);
 
         var fallback = il.DefineLabel();
-        var fastLoop = il.DefineLabel();
         var fallbackLoop = il.DefineLabel();
         var finish = il.DefineLabel();
         il.Emit(OpCodes.Ldloc, index);
@@ -100,11 +99,44 @@ internal static class StringLengthLoopFastPathEmitter
         il.Emit(OpCodes.Ldstr, "string.length");
         il.Emit(OpCodes.Ldloc, iterations);
         il.Emit(OpCodes.Call, Runtime(nameof(CompiledRuntime.ChargeBindingCalls)));
-        EmitLoopBody(fastLoop, finish, index, end, length, range.LocalName, plan, il, declare, chargeBinding: false);
+        if (plan.AddToTarget)
+        {
+            CompiledMeterEmitter.Fuel(il, 1);
+            EmitClosedForm(finish, end, iterations, length, range.LocalName, plan, il, declare);
+        }
+        else
+        {
+            var fastLoop = il.DefineLabel();
+            EmitLoopBody(fastLoop, finish, index, end, length, range.LocalName, plan, il, declare, chargeBinding: false);
+        }
 
         il.MarkLabel(fallback);
         EmitLoopBody(fallbackLoop, finish, index, end, length, range.LocalName, plan, il, declare, chargeBinding: true);
         il.MarkLabel(finish);
+    }
+
+    private static void EmitClosedForm(
+        Label finish,
+        LocalBuilder end,
+        LocalBuilder iterations,
+        LocalBuilder length,
+        string loopLocal,
+        LoopPlan plan,
+        ILGenerator il,
+        Func<string, (LocalBuilder Local, StackKind Kind)> declare)
+    {
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, declare(plan.Target).Local);
+        il.Emit(OpCodes.Ldloc, iterations);
+        il.Emit(OpCodes.Ldloc, length);
+        EmitInt32(il, plan.FuelPerIteration);
+        il.Emit(OpCodes.Call, Runtime(nameof(CompiledRuntime.AddRepeatedI32LoopRaw)));
+        il.Emit(OpCodes.Stloc, declare(plan.Target).Local);
+        il.Emit(OpCodes.Ldloc, end);
+        EmitInt32(il, 1);
+        il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stloc, declare(loopLocal).Local);
+        il.Emit(OpCodes.Br, finish);
     }
 
     private static void EmitLoopBody(
