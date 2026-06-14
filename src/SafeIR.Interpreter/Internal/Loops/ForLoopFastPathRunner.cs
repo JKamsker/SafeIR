@@ -21,6 +21,7 @@ internal static class ForLoopFastPathRunner
            I32ModuloBranchAccumulatorForLoopRunner.TryRun(statement, start, end, frame, context, options) ||
            I32ForLoopRunner.TryRun(statement, start, end, frame, context, options, calls) ||
            BranchedI32ForLoopRunner.TryRun(statement, start, end, frame, context, options, calls) ||
+           BranchedF64ForLoopRunner.TryRun(statement, start, end, frame, context, options, calls) ||
            F64ForLoopRunner.TryRun(statement, start, end, frame, context, options) ||
            I64ForLoopRunner.TryRun(statement, start, end, frame, context, options);
 }
