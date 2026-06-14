@@ -37,6 +37,7 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Compiled `list.get` cyclic accumulator | `d134853` | `--probe-matrix` | Same-machine baseline from `a514d91` measured compiled `list.get` at 19.4 ms / 36.5x. This step measured 18.2 ms / 34.0x by replacing the zero-based `total += items[i % constant]` emitted loop with a verifier-allowlisted bulk helper. |
 | Nested F64 binding crossings | this commit | `--probe-matrix` | Added `math.sqrt x3 binding`, which calls `math.sqrt` three times per loop iteration. Same-machine baseline from `d134853` measured interpreted at 472.1 ms / 40.5x and compiled at 28.8 ms / 2.5x. This step measured interpreted at 20.3 ms / 1.8x and compiled at 27.5 ms / 2.4x while charging all 3 binding calls per iteration. |
 | Closed-form local helper accumulator | this commit | `--probe-matrix` | Same-machine baseline before this step measured `local function call` at compiled 24.1 ms / 115.2x and interpreted 25.3 ms / 121.0x. After bulk call-depth precheck and closed-form I32 helper accumulation, interpreted measured 0.1 ms / 0.3x; compiled still measured 16.0 ms / 71.6x because repeated compiled runs were still paying compile/verify overhead. |
+| Default reflection compiler artifact reuse | this commit | `--probe-matrix` | Added bounded in-memory artifact reuse for the default reflection compiler. The matrix moved repeated compiled execution overhead out of hot measurements: `i32 add/rem` compiled 25.1 ms / 1.1x, `math.sqrt` 8.3 ms / 1.0x, `math.sqrt x3` 12.3 ms / 1.0x, and `local function call` 0.2 ms / 0.9x. Remaining compiled misses were tiny `string.length` at 1.2 ms / 5.3x and `list.count` at 1.3 ms / 5.8x. |
 
 ## Matrix After `31fa6fe`
 
@@ -229,6 +230,6 @@ local function call               0.2 ms     20.1 ms 100.0       23.0 ms  114.5
 
 ## Current Gaps
 
-The broad performance target is not met yet. Remaining gaps include repeated
-compiled execution overhead and tiny `string.length` / `list.count` accumulator
-loops where the handwritten baseline is sub-millisecond.
+The broad performance target is not met yet. Remaining gaps include tiny
+`string.length` and `list.count` accumulator loops where the handwritten
+baseline is sub-millisecond.
