@@ -31,6 +31,9 @@ internal sealed partial class I32ExpressionPlan
         _left = left;
         _right = right;
         FuelCost = fuelCost ?? 1 + (left?.FuelCost ?? 0) + (right?.FuelCost ?? 0);
+        MaxInlineCallDepth = kind == ExpressionKind.InlineCall
+            ? 1 + (left?.MaxInlineCallDepth ?? 0)
+            : Math.Max(left?.MaxInlineCallDepth ?? 0, Math.Max(right?.MaxInlineCallDepth ?? 0, 0));
     }
 
     // Exact `a % d` for a positive constant divisor d, using the precomputed reciprocal m = floor(2^32 / d).
@@ -66,6 +69,8 @@ internal sealed partial class I32ExpressionPlan
     }
 
     public int FuelCost { get; }
+
+    public int MaxInlineCallDepth { get; }
 
     public static I32ExpressionPlan InlineCall(I32ExpressionPlan body)
         => new(ExpressionKind.InlineCall, 0, body, fuelCost: body.FuelCost + 4);
@@ -156,7 +161,7 @@ internal sealed partial class I32ExpressionPlan
             ExpressionKind.RawVariable => frame.ReadRawInt32Slot(_value),
             ExpressionKind.BoxedVariable => frame.ReadInt32Slot(_value),
             ExpressionKind.Negate => SandboxInt32Math.Negate(_left!.Evaluate(frame, context)),
-            ExpressionKind.InlineCall => EvaluateInlineCall(frame, context),
+            ExpressionKind.InlineCall => _left!.Evaluate(frame, context),
             ExpressionKind.RemainderAddRawRawConst => FastRemainder(
                 SandboxInt32Math.Add(frame.ReadRawInt32Slot(_value), frame.ReadRawInt32Slot(_value2)),
                 _value3,
@@ -177,19 +182,6 @@ internal sealed partial class I32ExpressionPlan
             ExpressionKind.Remainder => SandboxInt32Math.Remainder(_left!.Evaluate(frame, context), _right!.Evaluate(frame, context)),
             _ => throw new SandboxRuntimeException(new SandboxError(SandboxErrorCode.ValidationError, "unsupported i32 expression"))
         };
-
-    private int EvaluateInlineCall(InterpreterFrame frame, SandboxContext context)
-    {
-        context.EnterCall();
-        try
-        {
-            return _left!.Evaluate(frame, context);
-        }
-        finally
-        {
-            context.ExitCall();
-        }
-    }
 
     private static bool TryCreateSpecialBinary(
         BinaryExpression binary,
