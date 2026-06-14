@@ -40,6 +40,7 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Default reflection compiler artifact reuse | this commit | `--probe-matrix` | Added bounded in-memory artifact reuse for the default reflection compiler. The matrix moved repeated compiled execution overhead out of hot measurements: `i32 add/rem` compiled 25.1 ms / 1.1x, `math.sqrt` 8.3 ms / 1.0x, `math.sqrt x3` 12.3 ms / 1.0x, and `local function call` 0.2 ms / 0.9x. Remaining compiled misses were tiny `string.length` at 1.2 ms / 5.3x and `list.count` at 1.3 ms / 5.8x. |
 | Closed-form string/list count accumulators | this commit | `--probe-matrix`, `--probe-compiled`, `--probe-bindings` | Collapsed bulk-chargeable `total += string.length(text)` and `total += list.count(items)` loops to one checked accumulator update. Current matrix worst compiled ratio is 1.2x and worst interpreted ratio is 4.6x; scalar probe measured compiled 51.3 ms / 1.0x and interpreted 218.1 ms / 4.4x; binding probe measured compiled 8.8 ms / 1.1x and interpreted 19.4 ms / 2.4x. |
 | Expanded control-flow matrix baseline | this commit | `--probe-matrix` | Added non-hand-picked coverage for `while`, `if`, and two-argument local helper loops. Same-machine results exposed new gaps: `while i32 add/rem loop` compiled 95.4 ms / 19.7x and interpreted 434.9 ms / 89.7x; `if branch i32 loop` compiled 40.8 ms / 97.4x and interpreted 398.7 ms / 950.9x; `two-arg local function` compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x. |
+| Closed-form two-arg local helper accumulator | this commit | `--probe-matrix` | Collapsed zero-based `total = add(total, i % constant)` loops where `add` returns both I32 parameters summed. Same-machine baseline from the control-flow matrix measured `two-arg local function` at compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x; this step measured compiled 0.5 ms / 1.2x and interpreted 0.1 ms / 0.2x. |
 
 ## Matrix After `31fa6fe`
 
@@ -230,7 +231,24 @@ map.get intrinsic                 4.8 ms     18.9 ms   3.9        0.6 ms    0.1
 local function call               0.2 ms     20.1 ms 100.0       23.0 ms  114.5
 ```
 
+## Matrix After Two-Arg Local Helper Accumulator
+
+```text
+case                         handwritten   compiled      x   interpreted      x
+i32 add/rem loop                 24.2 ms     24.9 ms   1.0      113.7 ms    4.7
+math.sqrt binding                 8.0 ms      8.4 ms   1.0       18.8 ms    2.3
+math.sqrt x3 binding             11.9 ms     12.2 ms   1.0       20.9 ms    1.8
+string.length binding             0.2 ms      0.2 ms   1.1        0.0 ms    0.1
+list.count intrinsic              0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.get intrinsic                0.5 ms      0.3 ms   0.5        1.7 ms    3.3
+map.get intrinsic                 5.1 ms      0.8 ms   0.1        0.5 ms    0.1
+local function call               0.2 ms      0.2 ms   1.0        0.0 ms    0.1
+while i32 add/rem loop            4.7 ms     93.5 ms  19.7      428.5 ms   90.3
+if branch i32 loop                0.4 ms     44.4 ms 106.3      396.7 ms  948.7
+two-arg local function            0.4 ms      0.5 ms   1.2        0.1 ms    0.2
+```
+
 ## Current Gaps
 
-The broad performance target is not met yet. Expanded control-flow coverage exposed
-large gaps in `while`, `if`, and two-argument local helper loops.
+The broad performance target is not met yet. Expanded control-flow coverage still
+shows large gaps in `while` and `if` loops.
