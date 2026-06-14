@@ -75,6 +75,14 @@ public static partial class CompiledRuntime
         context.ChargeLoopIterations(iterations, fuelPerIteration);
         return (int)(start + step * iterations);
     }
+
+    // EXPERIMENT (exp/strided-metering): generated loops flush batched iteration
+    // charges here. This reduces metering calls, but quota enforcement becomes
+    // strided instead of exact to the first over-limit iteration.
+    [MethodImpl(AggressiveInlining)]
+    public static void ChargeLoopBatch(SandboxContext context, int iterations, int fuelPerIteration)
+        => context.ChargeLoopIterations(iterations, fuelPerIteration);
+
     [MethodImpl(AggressiveInlining)] public static void ChargeBindingCall(SandboxContext context, string id) => context.ChargeBindingCall(context.Bindings.GetDescriptor(id));
     public static void EnterCall(SandboxContext context) => context.EnterCall();
     public static void ExitCall(SandboxContext context) => context.ExitCall();
