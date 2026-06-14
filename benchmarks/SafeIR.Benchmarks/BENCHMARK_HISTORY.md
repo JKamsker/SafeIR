@@ -15,6 +15,7 @@ they are not BenchmarkDotNet statistical reports.
 dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-compiled
 dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-bindings
 dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-matrix
+dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-compiled-binding-fast-path
 ```
 
 ## History
@@ -36,6 +37,12 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Direct `list.get` modulo index shortcut | `a514d91` | `--probe-matrix` | `list.get` interpreted improved from 11.0 ms / 20.9x to 1.7 ms / 3.3x by recognizing raw variable remainder indexes such as `i % 3`; compiled stayed about flat at 19.7 ms / 37.4x. |
 | Compiled `list.get` cyclic accumulator | `d134853` | `--probe-matrix` | Same-machine baseline from `a514d91` measured compiled `list.get` at 19.4 ms / 36.5x. This step measured 18.2 ms / 34.0x by replacing the zero-based `total += items[i % constant]` emitted loop with a verifier-allowlisted bulk helper. |
 | Nested F64 binding crossings | this commit | `--probe-matrix` | Added `math.sqrt x3 binding`, which calls `math.sqrt` three times per loop iteration. Same-machine baseline from `d134853` measured interpreted at 472.1 ms / 40.5x and compiled at 28.8 ms / 2.5x. This step measured interpreted at 20.3 ms / 1.8x and compiled at 27.5 ms / 2.4x while charging all 3 binding calls per iteration. |
+| Compiled two-argument binding fast path | this commit | `--probe-compiled-binding-fast-path`, `--probe-examples` | Emitted `CompiledRuntime.CallBinding2` for two-argument runtime-stub bindings and let descriptor targets that implement the internal fast invoker receive the two values without materializing a `SandboxValue[]`, while `ChargeValueArray` preserves generated-code fuel/allocation accounting. The focused real `host.message.send` probe for 200k calls measured the old array-backed shape at 373.6-424.8 ms and 334,401,112 B; the new fast path measured 135.4-140.2 ms and 322,238,456-322,842,136 B, saving 57.8-60.8 B/call after warmup. Broad workflow samples stayed noisy but sanity-ran with compiled `mixed fire/ice` at 315.0-342.1 ms and `predicate hit` at 222.9-265.3 ms. |
+
+Versioning note for the two-argument binding fast path: `CallBinding2` and `ChargeValueArray`
+are public generated-code ABI on `CompiledRuntime` for the same reason as the existing facade
+members: compiled assemblies must call them across assembly boundaries and the verifier allowlist
+hashes their exact signatures. They are not supported host API.
 
 ## Matrix After `31fa6fe`
 
