@@ -31,7 +31,7 @@ internal sealed class I32LoopFastPathEmitter
     private bool TryEmit(ForRangeStatement range)
     {
         if (_stackPlan.LocalKind(range.LocalName) != StackKind.I32 ||
-            !TryCreateBodyPlan(range, out var body, out var fuelPerIteration, out var bodyInstructionCost) ||
+            !TryCreateBodyPlan(range, out var body, out var fuelPerIteration, out var bodyInstructionCost, out var maxInlineCallDepth) ||
             EstimatedLoopInstructionCost(bodyInstructionCost) > MaxEstimatedInstructionsBetweenMeters)
         {
             return false;
@@ -43,6 +43,12 @@ internal sealed class I32LoopFastPathEmitter
         _il.Emit(OpCodes.Stloc, index);
         _expressions.EmitAs(range.End, StackKind.I32);
         _il.Emit(OpCodes.Stloc, end);
+        if (maxInlineCallDepth > 0)
+        {
+            _il.Emit(OpCodes.Ldarg_0);
+            EmitInt32(_il, maxInlineCallDepth);
+            _il.Emit(OpCodes.Call, Runtime(nameof(CompiledRuntime.RequireAdditionalCallDepth)));
+        }
 
         var startLabel = _il.DefineLabel();
         var finishLabel = _il.DefineLabel();
@@ -72,11 +78,12 @@ internal sealed class I32LoopFastPathEmitter
         return true;
     }
 
-    private bool TryCreateBodyPlan(ForRangeStatement range, out AssignmentPlan[] body, out int fuelPerIteration, out int instructionCost)
+    private bool TryCreateBodyPlan(ForRangeStatement range, out AssignmentPlan[] body, out int fuelPerIteration, out int instructionCost, out int maxInlineCallDepth)
     {
         body = new AssignmentPlan[range.Body.Count];
         fuelPerIteration = LoopFuel;
         instructionCost = 0;
+        maxInlineCallDepth = 0;
 
         for (var i = 0; i < range.Body.Count; i++)
         {
@@ -91,6 +98,7 @@ internal sealed class I32LoopFastPathEmitter
             body[i] = new AssignmentPlan(assignment.Name, expression);
             fuelPerIteration += 1 + expression.FuelCost;
             instructionCost += 1 + expression.InstructionCost;
+            maxInlineCallDepth = Math.Max(maxInlineCallDepth, expression.MaxInlineCallDepth);
         }
 
         return true;
@@ -125,11 +133,16 @@ internal sealed class I32LoopFastPathEmitter
             InstructionCost = kind is ExpressionKind.Literal or ExpressionKind.Variable
                 ? 1
                 : 1 + (left?.InstructionCost ?? 0) + (right?.InstructionCost ?? 0) + (third?.InstructionCost ?? 0);
+            MaxInlineCallDepth = kind == ExpressionKind.InlineCall
+                ? 1 + (left?.MaxInlineCallDepth ?? 0)
+                : Math.Max(left?.MaxInlineCallDepth ?? 0, Math.Max(right?.MaxInlineCallDepth ?? 0, third?.MaxInlineCallDepth ?? 0));
         }
 
         public int FuelCost { get; }
 
         public int InstructionCost { get; }
+
+        public int MaxInlineCallDepth { get; }
 
         public static bool TryCreate(Expression expression, LocalStackKindPlanner stackPlan, IReadOnlyDictionary<string, SandboxFunction> functions, out ExpressionPlan plan)
             => TryCreate(expression, stackPlan, functions, substitutions: null, out plan);
@@ -177,14 +190,7 @@ internal sealed class I32LoopFastPathEmitter
                     il.Emit(OpCodes.Call, Runtime(nameof(CompiledRuntime.NegI32Raw)));
                     break;
                 case ExpressionKind.InlineCall:
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Call, Runtime(nameof(CompiledRuntime.EnterInlineCall)));
                     _left!.Emit(il, declare);
-                    var value = il.DeclareLocal(typeof(int));
-                    il.Emit(OpCodes.Stloc, value);
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Call, Runtime(nameof(CompiledRuntime.ExitInlineCall)));
-                    il.Emit(OpCodes.Ldloc, value);
                     break;
                 case ExpressionKind.Add:
                 case ExpressionKind.Subtract:
