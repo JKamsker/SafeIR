@@ -22,6 +22,13 @@ public static partial class CompiledRuntime
         => context.RequireAdditionalCallDepth(additionalDepth);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool StringEqualsRaw(SandboxValue left, SandboxValue right)
+        => string.Equals(((StringValue)left).Value, ((StringValue)right).Value, StringComparison.Ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool GteI32Raw(int left, int right) => left >= right;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int AddRepeatedI32LoopRaw(
         SandboxContext context,
         int current,

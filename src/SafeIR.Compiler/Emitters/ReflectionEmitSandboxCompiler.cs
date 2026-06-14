@@ -25,6 +25,8 @@ public sealed class ReflectionEmitSandboxCompiler : ISandboxCompiler
         _memoryCache = cache is null ? new ReflectionEmitMemoryCache() : null;
     }
 
+    internal bool UsesPersistentCache => _cache is not null;
+
     public async ValueTask<CompiledArtifact> CompileAsync(
         ExecutionPlan plan,
         CompileOptions options,

@@ -51,6 +51,8 @@ public sealed record VerificationPolicy(
                 RuntimeMember("ChargeLoopIteration", $"{SandboxContextName},{Int32Name}", VoidName),
                 RuntimeMember("CanBulkChargeLoopIterations", $"{SandboxContextName},{Int32Name},{Int32Name}", BooleanName),
                 RuntimeMember("RequireAdditionalCallDepth", $"{SandboxContextName},{Int32Name}", VoidName),
+                RuntimeMember("StringEqualsRaw", $"{SandboxValueName},{SandboxValueName}", BooleanName),
+                RuntimeMember("GteI32Raw", $"{Int32Name},{Int32Name}", BooleanName),
                 RuntimeMember("AddRepeatedI32LoopRaw", $"{SandboxContextName},{Int32Name},{Int32Name},{Int32Name},{Int32Name}", Int32Name),
                 RuntimeMember("AddRemainderCycleI32LoopRaw", $"{SandboxContextName},{Int32Name},{Int32Name},{Int32Name},{Int32Name}", Int32Name),
                 RuntimeMember("AddModuloBranchDeltasI32LoopRaw", $"{SandboxContextName},{Int32Name},{Int32Name},{Int32Name},{Int32Name},{Int32Name},{Int32Name},{Int32Name}", Int32Name),

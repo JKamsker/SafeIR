@@ -15,6 +15,7 @@ they are not BenchmarkDotNet statistical reports.
 dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-compiled
 dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-bindings
 dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-matrix
+dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompilation=false -- --probe-examples
 ```
 
 ## History
@@ -43,6 +44,7 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Closed-form two-arg local helper accumulator | this commit | `--probe-matrix` | Collapsed zero-based `total = add(total, i % constant)` loops where `add` returns both I32 parameters summed. Same-machine baseline from the control-flow matrix measured `two-arg local function` at compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x; this step measured compiled 0.5 ms / 1.2x and interpreted 0.1 ms / 0.2x. |
 | Closed-form modulo branch accumulator | this commit | `--probe-matrix` | Collapsed zero-based `if (i % constant == constant) total += literal else total += literal` loops with same-direction deltas. Same-machine baseline from the previous matrix measured `if branch i32 loop` at compiled 44.4 ms / 106.3x and interpreted 396.7 ms / 948.7x; this step measured compiled 0.2 ms / 0.6x and interpreted 0.0 ms / 0.1x. |
 | Closed-form while add/rem accumulator | this commit | `--probe-matrix`, `--probe-compiled`, `--probe-bindings` | Collapsed guarded `while (i < end) { total = (total + i) % constant; i += 1; }` loops to an arithmetic-series modulo helper with a raw fallback when checked-overflow equivalence is not provable. Same-machine baseline from the previous matrix measured `while i32 add/rem loop` at compiled 96.8 ms / 19.6x and interpreted 414.9 ms / 84.1x; this step measured compiled 0.2 ms / 0.0x and interpreted 0.0 ms / 0.0x. Current probes meet the broad target: matrix worst compiled 1.2x and worst interpreted 4.6x, scalar compiled 49.9 ms / 1.0x and interpreted 157.8 ms / 3.2x, binding compiled 8.8 ms / 1.1x and interpreted 19.1 ms / 2.4x. |
+| Example workflow dispatch probe and plugin hot-path trims | this commit | `--probe-examples` | Added steady-state example coverage for a native hook chain versus a sandboxed JSON plugin. The original setup-inclusive probe exposed a large gap (`mixed fire/ice` compiled 3896.1 ms / 4954.3x, interpreted 255.2 ms / 324.5x). After separating setup from dispatch and trimming successful run summaries, empty audit snapshots, revocation checks, and default reflection compiled-cache hits, the dispatch-only probe measured `mixed fire/ice` native hook 9.6 ms, compiled 637.0 ms, interpreted 507.7 ms; `predicate miss` native hook 4.3 ms, compiled 129.3 ms, interpreted 170.8 ms; `predicate hit` native hook 3.2 ms, compiled 281.4 ms, interpreted 261.0 ms. This step improves diagnosability and removes avoidable overhead, but leaves plugin workflow dispatch far above near-native speed. |
 
 ## Matrix After `31fa6fe`
 
@@ -286,5 +288,7 @@ two-arg local function            0.4 ms      0.2 ms   0.5        0.0 ms    0.1
 
 ## Current Gaps
 
-No current probe gaps against the broad 2x compiled / 5x interpreted target.
-The latest matrix, scalar, and binding probes are all within target.
+The scalar, binding, and matrix probes remain within the broad target, but the new
+example workflow probe is not near native. The largest remaining gap is successful
+plugin execution overhead: per-entrypoint sandbox result/resource construction,
+observation recording, and the audited `Handle` fallback path dominate dispatch.
