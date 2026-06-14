@@ -258,6 +258,11 @@ internal sealed class StatementExecutor
             return default;
         }
 
+        if (I32RemainderAccumulatorCallForLoopRunner.TryRun(statement, start, end, frame, _context, _options, _calls))
+        {
+            return default;
+        }
+
         if (I32ForLoopRunner.TryRun(statement, start, end, frame, _context, _options, _calls))
         {
             return default;
