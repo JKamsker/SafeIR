@@ -137,20 +137,19 @@ public sealed record ListValue(IReadOnlyList<SandboxValue> Values, SandboxType I
     /// Internal because the owned-array contract cannot be enforced for external callers.
     /// </summary>
     internal static ListValue FromOwnedValues(SandboxValue[] values, SandboxType itemType)
-        => new(new OwnedSnapshot(ModelCopy.WrapOwned(values)), itemType);
+        => new(new OwnedSnapshot(values), itemType);
 
     private static IReadOnlyList<SandboxValue> Snapshot(IReadOnlyList<SandboxValue> values)
-        => values is OwnedSnapshot owned ? owned.Values : ModelCopy.List(values);
+        => values is OwnedSnapshot owned ? owned : ModelCopy.List(values);
 
-    private sealed class OwnedSnapshot(IReadOnlyList<SandboxValue> values) : IReadOnlyList<SandboxValue>
+    private sealed class OwnedSnapshot(SandboxValue[] values) : IReadOnlyList<SandboxValue>
     {
-        public IReadOnlyList<SandboxValue> Values { get; } = values;
+        public SandboxValue this[int index] => values[index];
 
-        public SandboxValue this[int index] => Values[index];
+        public int Count => values.Length;
 
-        public int Count => Values.Count;
-
-        public IEnumerator<SandboxValue> GetEnumerator() => Values.GetEnumerator();
+        public IEnumerator<SandboxValue> GetEnumerator()
+            => ((IEnumerable<SandboxValue>)values).GetEnumerator();
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
@@ -205,20 +204,19 @@ public sealed record RecordValue : SandboxValue
     /// Internal because the owned-array contract cannot be enforced for external callers.
     /// </summary>
     internal static RecordValue FromOwnedFields(SandboxValue[] fields)
-        => new(new OwnedSnapshot(ModelCopy.WrapOwned(fields)));
+        => new(new OwnedSnapshot(fields));
 
     private static IReadOnlyList<SandboxValue> Snapshot(IReadOnlyList<SandboxValue> fields)
-        => fields is OwnedSnapshot owned ? owned.Fields : ModelCopy.List(fields);
+        => fields is OwnedSnapshot owned ? owned : ModelCopy.List(fields);
 
-    private sealed class OwnedSnapshot(IReadOnlyList<SandboxValue> fields) : IReadOnlyList<SandboxValue>
+    private sealed class OwnedSnapshot(SandboxValue[] fields) : IReadOnlyList<SandboxValue>
     {
-        public IReadOnlyList<SandboxValue> Fields { get; } = fields;
+        public SandboxValue this[int index] => fields[index];
 
-        public SandboxValue this[int index] => Fields[index];
+        public int Count => fields.Length;
 
-        public int Count => Fields.Count;
-
-        public IEnumerator<SandboxValue> GetEnumerator() => Fields.GetEnumerator();
+        public IEnumerator<SandboxValue> GetEnumerator()
+            => ((IEnumerable<SandboxValue>)fields).GetEnumerator();
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
