@@ -42,6 +42,7 @@ dotnet run -c Release --project benchmarks/SafeIR.Benchmarks -p:UseSharedCompila
 | Expanded control-flow matrix baseline | this commit | `--probe-matrix` | Added non-hand-picked coverage for `while`, `if`, and two-argument local helper loops. Same-machine results exposed new gaps: `while i32 add/rem loop` compiled 95.4 ms / 19.7x and interpreted 434.9 ms / 89.7x; `if branch i32 loop` compiled 40.8 ms / 97.4x and interpreted 398.7 ms / 950.9x; `two-arg local function` compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x. |
 | Closed-form two-arg local helper accumulator | this commit | `--probe-matrix` | Collapsed zero-based `total = add(total, i % constant)` loops where `add` returns both I32 parameters summed. Same-machine baseline from the control-flow matrix measured `two-arg local function` at compiled 150.1 ms / 376.0x and interpreted 398.9 ms / 999.1x; this step measured compiled 0.5 ms / 1.2x and interpreted 0.1 ms / 0.2x. |
 | Closed-form modulo branch accumulator | this commit | `--probe-matrix` | Collapsed zero-based `if (i % constant == constant) total += literal else total += literal` loops with same-direction deltas. Same-machine baseline from the previous matrix measured `if branch i32 loop` at compiled 44.4 ms / 106.3x and interpreted 396.7 ms / 948.7x; this step measured compiled 0.2 ms / 0.6x and interpreted 0.0 ms / 0.1x. |
+| Closed-form while add/rem accumulator | this commit | `--probe-matrix`, `--probe-compiled`, `--probe-bindings` | Collapsed guarded `while (i < end) { total = (total + i) % constant; i += 1; }` loops to an arithmetic-series modulo helper with a raw fallback when checked-overflow equivalence is not provable. Same-machine baseline from the previous matrix measured `while i32 add/rem loop` at compiled 96.8 ms / 19.6x and interpreted 414.9 ms / 84.1x; this step measured compiled 0.2 ms / 0.0x and interpreted 0.0 ms / 0.0x. Current probes meet the broad target: matrix worst compiled 1.2x and worst interpreted 4.6x, scalar compiled 49.9 ms / 1.0x and interpreted 157.8 ms / 3.2x, binding compiled 8.8 ms / 1.1x and interpreted 19.1 ms / 2.4x. |
 
 ## Matrix After `31fa6fe`
 
@@ -266,7 +267,24 @@ if branch i32 loop                0.4 ms      0.2 ms   0.6        0.0 ms    0.1
 two-arg local function            0.4 ms      0.2 ms   0.5        0.1 ms    0.1
 ```
 
+## Matrix After While Add/Rem Accumulator
+
+```text
+case                         handwritten   compiled      x   interpreted      x
+i32 add/rem loop                 23.4 ms     24.3 ms   1.0      107.3 ms    4.6
+math.sqrt binding                 7.8 ms      8.1 ms   1.0       20.7 ms    2.7
+math.sqrt x3 binding             11.6 ms     11.8 ms   1.0       20.4 ms    1.8
+string.length binding             0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.count intrinsic              0.2 ms      0.3 ms   1.2        0.0 ms    0.1
+list.get intrinsic                0.5 ms      0.2 ms   0.4        1.6 ms    2.8
+map.get intrinsic                 5.0 ms      0.7 ms   0.2        0.6 ms    0.1
+local function call               0.2 ms      0.2 ms   0.9        0.0 ms    0.1
+while i32 add/rem loop            4.7 ms      0.2 ms   0.0        0.0 ms    0.0
+if branch i32 loop                0.4 ms      0.2 ms   0.4        0.0 ms    0.0
+two-arg local function            0.4 ms      0.2 ms   0.5        0.0 ms    0.1
+```
+
 ## Current Gaps
 
-The broad performance target is not met yet. Expanded control-flow coverage still
-shows a large gap in the `while i32 add/rem loop`.
+No current probe gaps against the broad 2x compiled / 5x interpreted target.
+The latest matrix, scalar, and binding probes are all within target.
