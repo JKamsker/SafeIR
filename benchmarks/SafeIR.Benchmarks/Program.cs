@@ -27,6 +27,11 @@ if (args.Contains("--probe-examples", StringComparer.OrdinalIgnoreCase)) {
     return;
 }
 
+if (args.Contains("--probe-prepared-values", StringComparer.OrdinalIgnoreCase)) {
+    await SafeIR.Benchmarks.Examples.PreparedValueProbe.RunAsync();
+    return;
+}
+
 if (args.Contains("--probe-runtime-types", StringComparer.OrdinalIgnoreCase)) {
     SafeIR.Benchmarks.Runtime.RuntimeTypeProbe.Run();
     return;
